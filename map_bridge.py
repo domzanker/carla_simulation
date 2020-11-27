@@ -161,13 +161,12 @@ class MapBridge:
             polys.append(lane.polygon)
 
         self.lane_polyons = shapely.geometry.MultiPolygon(polys)
-
         self.str_tree = shapely.strtree.STRtree(self.lane_polyons)
 
-    def get_map_patch(self, box_dims, transform: Union[carla.Transform, Isometry]):
+    def get_map_patch(self, box_dims, world_T_veh: Isometry):
         # get all polygons in a bounding box
         # box_dims = [x, y]
-        m_ = np.asarray(transform.get_matrix())
+        m_ = world_T_veh.matrix
         coefficient_list = np.ravel(m_[:3, :3]).tolist()
         coefficient_list += np.ravel(m_[:3, 3]).tolist()
 
