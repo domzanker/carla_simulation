@@ -131,16 +131,9 @@ class Lane(object):
 
             poly = self.left_segments.coords[:]
             poly += self.right_segments.coords[::-1]
-            self.polygon = shapely.geometry.Polygon(poly)
-            """
-            fig, ax = plt.subplots()
-            p = PolygonPatch(self.polygon)
-            x_min, y_min, x_max, y_max = self.polygon.bounds
-            ax.set_xlim([x_min - 1, x_max + 1])
-            ax.set_ylim([y_min - 1, y_max + 1])
-            ax.add_patch(p)
-            plt.show()
-            """
+            # convert poly to rh coordinates
+            poly = shapely.geometry.Polygon(poly)
+            self.polygon = shapely.affinity.scale(poly, yfact=-1.0, origin=(0, 0, 0))
 
 
 class MapBridge:
@@ -166,6 +159,7 @@ class MapBridge:
             self.lanes.append(lane)
 
             polys.append(lane.polygon)
+
         self.lane_polyons = shapely.geometry.MultiPolygon(polys)
 
         self.str_tree = shapely.strtree.STRtree(self.lane_polyons)
