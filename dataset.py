@@ -115,8 +115,8 @@ class Dataset:
         resolution = 0.02
         coeffs = [
             0,
-            1 / resolution,
             -1 / resolution,
+            1 / resolution,
             0,
             top_view_data.width / 2,
             top_view_data.height / 2,
@@ -136,29 +136,21 @@ class Dataset:
                 [(floor(x), floor(y)) for x, y in img_poly.exterior.coords]
             )
 
-        return np_img, bb, poly, bev, img_poly, veh_poly
+        return {
+            "image": np_img,
+            "query_box": bb,
+            "world_poly": poly,
+            "image_poly": img_poly,
+            "vehicle_poly": veh_poly,
+        }
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from map_bridge import plot_polygon
     from shapely import speedups
-    from pyquaternion import Quaternion
 
     """
-
-    print("test identity... ", end="")
-    i = Isometry()
-    c = isometry_to_carla(i)
-    np.testing.assert_allclose(i.matrix, c.get_matrix())
-    print("passed")
-
-    print("test roll... ", end="")
-    i = Isometry(rotation=Quaternion(axis=[1, 0, 0], degrees=45))
-    c = isometry_to_carla(i)
-    np.testing.assert_allclose(i.matrix, c.get_matrix())
-    print("passed")
-
     print("test pitch... ", end="")
     i = Isometry(rotation=Quaternion(axis=[0, 1, 0], degrees=45))
     c = isometry_to_carla(i)
@@ -186,7 +178,7 @@ if __name__ == "__main__":
         c = isometry_to_carla(i)
         np.testing.assert_allclose(i.matrix, c.get_matrix(), atol=1e-1)
         print("passed")
-    """
+
     if speedups.available:
         speedups.enable()
         print("Speedups enabled")
@@ -210,10 +202,15 @@ if __name__ == "__main__":
 
         world.tick()
 
-        image, bb, p, bev, ip, vp = dataset.get_sample()
+        sample = dataset.get_sample()
         spectator.set_transform(
             carla.Transform(
-                carla.Location(*dataset.ego_pose.translation), carla.Rotation()
+                carla.Location(
+                    dataset.ego_pose.translation[0],
+                    -dataset.ego_pose.translation[1],
+                    dataset.ego_pose.translation[2],
+                ),
+                carla.Rotation(pitch=-30),
             )
         )
 
@@ -223,12 +220,13 @@ if __name__ == "__main__":
         ax[2].set_xlim([x_min - margin, x_max + margin])
         ax[2].set_ylim([y_min - margin, y_max + margin])
 
-        ax[0].imshow(image)
-        ax[1].imshow(image)
+        ax[0].imshow(sample["image"])
+        ax[1].imshow(sample["image"])
         dataset.map_bridge.plot_polys(ax[2])
-        plot_polygon(ax[1], ip, fc="blue", ec="black", alpha=0.4)
+        plot_polygon(ax[1], sample["image_poly"], fc="blue", ec="black", alpha=0.4)
 
-        plot_polygon(ax[2], bb, fc="blue", ec="blue", alpha=0.5)
+        plot_polygon(ax[2], sample["query_box"], fc="blue", ec="blue", alpha=0.5)
+        ax[2].set_aspect("equal")
         # (x_min, y_min, x_max, y_max) = vp.bounds
         x_min = -20
         x_max = 20
@@ -237,7 +235,9 @@ if __name__ == "__main__":
         margin = 2
         ax[3].set_xlim([x_min - margin, x_max + margin])
         ax[3].set_ylim([y_min - margin, y_max + margin])
-        plot_polygon(ax[3], vp)
+        plot_polygon(ax[3], sample["vehicle_poly"])
         ax[3].plot([0], [0], marker="o", markersize=3)
+        ax[3].set_aspect("equal")
 
         plt.show()
+        """
