@@ -116,6 +116,34 @@ class Dataset:
             self.cameras[cam] = bev
             self.camera_queues[cam] = q_
 
+        self.lidars = {}
+        self.lidar_queues = {}
+        lidar_setup = {
+            "lidar_top": {
+                "extrinsic": {
+                    "location": carla.Location(x=0, y=0, z=2),
+                    "rotation": carla.Rotation(roll=0, pitch=0, yaw=0),
+                },
+                "intrinsic": {
+                    "rotation_frequency": 20,
+                    "points_per_second": 56000,
+                    "range": 30,
+                    "channels": 32,
+                    "lower_fov": -30,
+                    "upper_fov": 5,
+                    "dropoff_general_rate": 0.30,
+                },
+            }
+        }
+        for lidar, configs in lidar_setup.items():
+            l, q_ = self.sensor_platform.add_lidar(
+                name=lidar,
+                veh_T_sensor=carla.Transform(**configs["extrinsic"]),
+                **configs["intrinsic"],
+            )
+            self.lidar_queues[lidar] = q_
+            self.lidars[lidar] = l
+
         self.map_bridge = MapBridge(world)
         self.map_bridge.load_lane_polygons()
 
@@ -123,6 +151,23 @@ class Dataset:
 
     def get_sample(self):
         # get images
+        for name, lidar in self.lidars.items():
+            lidar_data = self.lidar_queues[name].get()
+            point_cloud = np.frombuffer(lidar_data.raw_data, dtype=np.float32).reshape(
+                [-1, 4]
+            )
+            point_cloud = np.row_stack(
+                [
+                    point_cloud[:, 0],
+                    point_cloud[:, 1],
+                    point_cloud[:, 2],
+                    point_cloud[:, 3],
+                ]
+            )
+            lidar.load_data(data=point_cloud)
+            lidar.transformLidarToVehicle()
+            lidar.exportPCD("lidar_test.pcd")
+
         for name, cam in self.cameras.items():
             if name == "top_view":
                 cam_data = self.camera_queues["top_view"].get()
@@ -281,5 +326,14 @@ if __name__ == "__main__":
         ax[1][1].imshow(dataset.cameras["cam_front"].data)
         ax[1][0].imshow(dataset.cameras["cam_front_left"].data)
         ax[1][2].imshow(dataset.cameras["cam_front_right"].data)
+
+        ax[1][3].set_xlim([x_min - margin, x_max + margin])
+        ax[1][3].set_ylim([y_min - margin, y_max + margin])
+
+        ax[1][3].scatter(
+            dataset.lidars["lidar_top"].data[1, :],
+            dataset.lidars["lidar_top"].data[0, :],
+            s=1,
+        )
 
         plt.show()

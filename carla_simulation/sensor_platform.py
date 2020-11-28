@@ -20,7 +20,7 @@ import carla
 from queue import Queue
 import numpy as np
 
-from dataset_utilities.camera import BirdsEyeView, Camera
+from dataset_utilities.camera import BirdsEyeView, Camera, Lidar
 from dataset_utilities.transformation import Isometry
 
 
@@ -39,6 +39,7 @@ class SensorPlatform:
         self.ego_vehicle.set_autopilot(True)
 
         self.cameras = {}
+        self.lidars = {}
 
     def add_topview(
         self,
@@ -120,8 +121,24 @@ class SensorPlatform:
         )
         return bev, q_
 
-    def add_lidar(self, name, transform=carla.Transform(), blueprint="sensor.lidar"):
-        raise NotImplementedError
+    def add_lidar(
+        self,
+        name,
+        veh_T_sensor=carla.Transform(),
+        blueprint="sensor.lidar.ray_cast",
+        **kwargs,
+    ):
+        blueprint = self.world.get_blueprint_library().find(blueprint)
+        for key, val in kwargs.items():
+            blueprint.set_attribute(key, str(val))
+        sensor = self.world.spawn_actor(
+            blueprint, veh_T_sensor, attach_to=self.ego_vehicle
+        )
+        q_ = Queue(1)
+        self.lidars[name] = (sensor, q_)
+        sensor.listen(lambda data: q_.put(data))
+        lidar = Lidar(id=name, extrinsic=Isometry.from_carla_transform(veh_T_sensor))
+        return lidar, q_
 
     def reference_callback(self, data, queue):
         self.ego_pose = self.ego_vehicle.get_transform()
