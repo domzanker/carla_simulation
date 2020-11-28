@@ -30,6 +30,7 @@ from copy import deepcopy, copy
 
 from city_scapes_cm import apply_cityscapes_cm
 from dataset_utilities.transformation import Isometry
+from dataset_utilities.camera import Camera, BirdsEyeView
 
 from scipy.spatial.transform import Rotation
 
@@ -52,26 +53,68 @@ class Dataset:
         self.cameras = {}
         self.camera_queues = {}
 
-        camera_setup = {
+        self.roi = [30, 20]
+        self.resolution = 0.04
+
+        self.sensor_platform = SensorPlatform(world)
+
+        top_view = {
             "top_view": {
                 "extrinsic": {
                     "location": carla.Location(),
                     "rotation": carla.Rotation(pitch=-90, yaw=0),
                 },
-                "intrinsic": {"image_size_x": 1000, "image_size_y": 2000},
+                "intrinsic": {},
             }
         }
 
-        self.sensor_platform = SensorPlatform(world)
-
-        cam, queue = self.sensor_platform.add_camera(
+        cam, queue = self.sensor_platform.add_topview(
             "top_view",
-            transform=carla.Transform(**camera_setup["top_view"]["extrinsic"]),
+            veh_T_sensor=carla.Transform(**top_view["top_view"]["extrinsic"]),
             blueprint="sensor.camera.semantic_segmentation",
-            **camera_setup["top_view"]["intrinsic"],
+            roi=self.roi,
+            resolution=self.resolution,
+            **top_view["top_view"]["intrinsic"],
         )
         self.cameras["top_view"] = cam
         self.camera_queues["top_view"] = queue
+
+        camera_setup = {
+            "cam_front": {
+                "extrinsic": {
+                    "location": carla.Location(x=2.0, y=0.0, z=1.5),
+                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=0),
+                },
+                "intrinsic": {"image_size_x": 1920, "image_size_y": 1080},
+            },
+            "cam_front_left": {
+                "extrinsic": {
+                    "location": carla.Location(x=1.5, y=-0.5, z=1.5),
+                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=-45),
+                },
+                "intrinsic": {"image_size_x": 1920, "image_size_y": 1080},
+            },
+            "cam_front_right": {
+                "extrinsic": {
+                    "location": carla.Location(x=1.5, y=0.5, z=1.5),
+                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=45),
+                },
+                "intrinsic": {"image_size_x": 1920, "image_size_y": 1080},
+            },
+        }
+        # "cam_front_left": {},
+        # "cam_front_right": {},
+        # "cam_back": {},
+        # "cam_back_left": {},
+        # "cam_back_right": {},
+        for cam, configs in camera_setup.items():
+            bev, q_ = self.sensor_platform.add_camera(
+                name=cam,
+                veh_T_sensor=carla.Transform(**configs["extrinsic"]),
+                **configs["intrinsic"],
+            )
+            self.cameras[cam] = bev
+            self.camera_queues[cam] = q_
 
         self.map_bridge = MapBridge(world)
         self.map_bridge.load_lane_polygons()
@@ -80,46 +123,68 @@ class Dataset:
 
     def get_sample(self):
         # get images
-        top_view_data = self.camera_queues["top_view"].get()
-        cc = carla.ColorConverter.CityScapesPalette
-        top_view_data.save_to_disk("semantic_test.png", cc)
-        np_img = np.frombuffer(top_view_data.raw_data, dtype=np.uint8)
-        np_img = np.reshape(np_img, (top_view_data.height, top_view_data.width, 4))
-        np_img = np_img[:, :, :3]
-        np_img = np_img[:, :, ::-1].copy()
-        # np_img = (255 * np_img).astype(np.uint8)
-        np_img = apply_cityscapes_cm(np_img)
+        for name, cam in self.cameras.items():
+            if name == "top_view":
+                cam_data = self.camera_queues["top_view"].get()
+                cc = carla.ColorConverter.CityScapesPalette
+                cam_data.save_to_disk("semantic_test.png", cc)
+                np_img = np.frombuffer(
+                    cam_data.raw_data, dtype=np.uint8
+                ).copy()  # .copy()
+                np_img = np.reshape(np_img, (cam_data.height, cam_data.width, 4))
+                np_img = np_img[:, :, :3]
+                np_img = np_img[:, :, ::-1]
+                np_img = apply_cityscapes_cm(np_img)
+                top_view_img = np_img
 
-        bev = self.cameras["top_view"].transform(data=np_img)
-        # get ego_pose from sensor pose
-        # world_T_sensor -> world_T_veh * veh_T_sensor
-        sensor_T_veh = self.cameras["top_view"].extrinsic
-        world_T_sensor = Isometry.from_carla_transform(top_view_data.transform)
-        world_T_veh = world_T_sensor @ sensor_T_veh
-        self.ego_pose = world_T_veh
+            else:
+                cam_data = self.camera_queues[name].get()
+                cam_data.save_to_disk(name + "_test.png")
+                np_img = np.frombuffer(
+                    cam_data.raw_data, dtype=np.uint8
+                ).copy()  # .copy()
+                np_img = np.reshape(np_img, (cam_data.height, cam_data.width, 4))
+                np_img = np_img[:, :, :3]
+                np_img = np_img[:, :, ::-1]
+                self.cameras[name].load_data(data=np_img)
 
-        # trafo = self.sensor_platform.ego_vehicle.get_transform()
+            # bev = self.cameras["top_view"].transform(data=np_img)
+            # get ego_pose from sensor pose
+            # world_T_sensor -> world_T_veh * veh_T_sensor
+            sensor_T_veh = self.cameras[name].extrinsic
+            world_T_sensor = Isometry.from_carla_transform(cam_data.transform)
+            world_T_veh = world_T_sensor @ sensor_T_veh
+            self.ego_pose = world_T_veh
 
-        roi = [40, 20]
-        bb, poly = self.map_bridge.get_map_patch(roi, self.ego_pose)
-
+        bb, poly = self.map_bridge.get_map_patch(self.roi, self.ego_pose)
         # transform polygon to image frame
         veh_T_world = self.ego_pose.inverse()
         coefficient_list = np.ravel(veh_T_world.matrix[:3, :3]).tolist()
         coefficient_list += np.ravel(veh_T_world.matrix[:3, 3]).tolist()
-
         # road polygons in vehicle pose
         veh_poly = shapely.affinity.affine_transform(poly, coefficient_list)
 
         # we need the polygons in image scope of the roi (ie image frame)
-        resolution = 0.02
+        """
+        img_poly = shapely.affinity.rotate(veh_poly, angle=90, origin=(0, 0))
+        img_poly = shapely.affinity.translate(
+            img_poly, xoff=self.roi[0] / 2, yoff=self.roi[1] / 2
+        )
+        img_poly = shapely.affinity.scale(
+            img_poly,
+            xfact=1 / self.resolution,
+            yfact=1 / self.resolution,
+            origin=(0, 0),
+        )
+
+        """
         coeffs = [
             0,
-            -1 / resolution,
-            1 / resolution,
+            -1 / self.resolution,
+            -1 / self.resolution,
             0,
-            top_view_data.width / 2,
-            top_view_data.height / 2,
+            self.roi[1] / (2 * self.resolution),
+            self.roi[0] / (2 * self.resolution),
         ]
         img_poly = shapely.affinity.affine_transform(veh_poly, coeffs)
         if img_poly.geom_type == "MultiPolygon":
@@ -137,47 +202,21 @@ class Dataset:
             )
 
         return {
-            "image": np_img,
+            "image": top_view_img,
             "query_box": bb,
             "world_poly": poly,
             "image_poly": img_poly,
             "vehicle_poly": veh_poly,
         }
 
+    def polylines_from_shapely(self, shapes):
+        raise NotImplementedError
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from map_bridge import plot_polygon
     from shapely import speedups
-
-    """
-    print("test pitch... ", end="")
-    i = Isometry(rotation=Quaternion(axis=[0, 1, 0], degrees=45))
-    c = isometry_to_carla(i)
-    np.testing.assert_allclose(i.matrix, c.get_matrix())
-    print("passed")
-
-    print("test yaw... ", end="")
-    i = Isometry(rotation=Quaternion(axis=[0, 0, 1], degrees=45))
-    c = isometry_to_carla(i)
-    np.testing.assert_allclose(i.matrix, c.get_matrix())
-    print("passed")
-
-    print("test vector... ", end="")
-    i = Isometry(rotation=Quaternion(axis=[0, 1, 1], degrees=45))
-    c = isometry_to_carla(i)
-    v = np.array([4.4, 9.0, 10.2, 1])
-    pi = i @ v[:3]
-    pc = c.get_matrix() @ v
-    np.testing.assert_allclose(pi, pc)
-    print("passed")
-
-    for i in range(5):
-        print("test random #%s... " % i, end="")
-        i = Isometry.random()
-        c = isometry_to_carla(i)
-        np.testing.assert_allclose(i.matrix, c.get_matrix(), atol=1e-1)
-        print("passed")
 
     if speedups.available:
         speedups.enable()
@@ -187,7 +226,7 @@ if __name__ == "__main__":
     client = carla.Client("localhost", 2000)
     client.set_timeout(10.0)  # seconds
 
-    world = client.load_world("Town03")
+    world = client.load_world("Town01")
     settings = world.get_settings()
     settings.synchronous_mode = False  # True
     settings.fixed_delta_seconds = 0.05
@@ -214,30 +253,33 @@ if __name__ == "__main__":
             )
         )
 
-        fig, ax = plt.subplots(1, 4)
+        fig, ax = plt.subplots(2, 4)
         (x_min, y_min, x_max, y_max) = dataset.map_bridge.lane_polyons.bounds
         margin = 2
-        ax[2].set_xlim([x_min - margin, x_max + margin])
-        ax[2].set_ylim([y_min - margin, y_max + margin])
+        ax[0][2].set_xlim([x_min - margin, x_max + margin])
+        ax[0][2].set_ylim([y_min - margin, y_max + margin])
 
-        ax[0].imshow(sample["image"])
-        ax[1].imshow(sample["image"])
-        dataset.map_bridge.plot_polys(ax[2])
-        plot_polygon(ax[1], sample["image_poly"], fc="blue", ec="black", alpha=0.4)
+        ax[0][0].imshow(sample["image"])
+        ax[0][1].imshow(sample["image"])
+        dataset.map_bridge.plot_polys(ax[0][2])
+        plot_polygon(ax[0][1], sample["image_poly"], fc="blue", ec="black", alpha=0.4)
 
-        plot_polygon(ax[2], sample["query_box"], fc="blue", ec="blue", alpha=0.5)
-        ax[2].set_aspect("equal")
+        plot_polygon(ax[0][2], sample["query_box"], fc="blue", ec="blue", alpha=0.5)
+        ax[0][2].set_aspect("equal")
         # (x_min, y_min, x_max, y_max) = vp.bounds
-        x_min = -20
-        x_max = 20
-        y_min = -20
-        y_max = 20
+        x_max = dataset.roi[0] // 2
+        x_min = -x_max
+        y_max = dataset.roi[1] // 2
+        y_min = -y_max
         margin = 2
-        ax[3].set_xlim([x_min - margin, x_max + margin])
-        ax[3].set_ylim([y_min - margin, y_max + margin])
-        plot_polygon(ax[3], sample["vehicle_poly"])
-        ax[3].plot([0], [0], marker="o", markersize=3)
-        ax[3].set_aspect("equal")
+        ax[0][3].set_xlim([x_min - margin, x_max + margin])
+        ax[0][3].set_ylim([y_min - margin, y_max + margin])
+        plot_polygon(ax[0][3], sample["vehicle_poly"])
+        ax[0][3].plot([0], [0], marker="o", markersize=3)
+        ax[0][3].set_aspect("equal")
+
+        ax[1][1].imshow(dataset.cameras["cam_front"].data)
+        ax[1][0].imshow(dataset.cameras["cam_front_left"].data)
+        ax[1][2].imshow(dataset.cameras["cam_front_right"].data)
 
         plt.show()
-        """
