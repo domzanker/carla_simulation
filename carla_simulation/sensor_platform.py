@@ -125,7 +125,7 @@ class SensorPlatform:
             intrinsic=K,
             resolution=0.04,
             offset=(10, 0),
-            out_size=(750, 500),
+            out_size=(500, 750),
             crop_horizon=True,
         )
         return bev, q_
