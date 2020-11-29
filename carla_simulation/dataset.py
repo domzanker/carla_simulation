@@ -82,24 +82,24 @@ class Dataset:
         camera_setup = {
             "cam_front": {
                 "extrinsic": {
-                    "location": carla.Location(x=2.0, y=0.0, z=1.5),
-                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=0),
+                    "location": carla.Location(x=0.0, y=0.0, z=2),
+                    "rotation": carla.Rotation(roll=0, pitch=0, yaw=0),
                 },
-                "intrinsic": {"image_size_x": 1920, "image_size_y": 1080},
+                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
             },
             "cam_front_left": {
                 "extrinsic": {
                     "location": carla.Location(x=1.5, y=-0.5, z=1.5),
                     "rotation": carla.Rotation(roll=0, pitch=-12, yaw=-45),
                 },
-                "intrinsic": {"image_size_x": 1920, "image_size_y": 1080},
+                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
             },
             "cam_front_right": {
                 "extrinsic": {
                     "location": carla.Location(x=1.5, y=0.5, z=1.5),
                     "rotation": carla.Rotation(roll=0, pitch=-12, yaw=45),
                 },
-                "intrinsic": {"image_size_x": 1920, "image_size_y": 1080},
+                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
             },
         }
         # "cam_front_left": {},
@@ -147,7 +147,7 @@ class Dataset:
         self.map_bridge = MapBridge(world)
         self.map_bridge.load_lane_polygons()
 
-        self.ego_pose = carla.Transform(carla.Location(z=2), carla.Rotation())
+        self.ego_pose = Isometry([0, 0, 0])
 
     def get_sample(self):
         # get images
@@ -182,6 +182,12 @@ class Dataset:
                 np_img = apply_cityscapes_cm(np_img)
                 top_view_img = np_img
 
+                # FIXME
+                sensor_T_veh = self.cameras[name].extrinsic
+                world_T_sensor = Isometry.from_carla_transform(cam_data.transform)
+                world_T_veh = world_T_sensor @ sensor_T_veh
+                self.ego_pose = world_T_veh
+
             else:
                 cam_data = self.camera_queues[name].get()
                 cam_data.save_to_disk(name + "_test.png")
@@ -192,14 +198,11 @@ class Dataset:
                 np_img = np_img[:, :, :3]
                 np_img = np_img[:, :, ::-1]
                 self.cameras[name].load_data(data=np_img)
+                # self.cameras[name].drawCalibration()
 
             # bev = self.cameras["top_view"].transform(data=np_img)
             # get ego_pose from sensor pose
             # world_T_sensor -> world_T_veh * veh_T_sensor
-            sensor_T_veh = self.cameras[name].extrinsic
-            world_T_sensor = Isometry.from_carla_transform(cam_data.transform)
-            world_T_veh = world_T_sensor @ sensor_T_veh
-            self.ego_pose = world_T_veh
 
         bb, poly = self.map_bridge.get_map_patch(self.roi, self.ego_pose)
         # transform polygon to image frame
@@ -281,7 +284,7 @@ if __name__ == "__main__":
 
     spectator = world.get_spectator()
 
-    frames = 100
+    frames = 1
     for frame in range(frames):
 
         world.tick()
@@ -298,7 +301,7 @@ if __name__ == "__main__":
             )
         )
 
-        fig, ax = plt.subplots(2, 4)
+        fig, ax = plt.subplots(3, 4)
         (x_min, y_min, x_max, y_max) = dataset.map_bridge.lane_polyons.bounds
         margin = 2
         ax[0][2].set_xlim([x_min - margin, x_max + margin])
@@ -335,5 +338,17 @@ if __name__ == "__main__":
             dataset.lidars["lidar_top"].data[0, :],
             s=1,
         )
+
+        print()
+        # transform bev
+        # print("principal point on ground")
+        # print(dataset.cameras["cam_front"].transformImageToGround(np.array([960, 540])))
+        print("point 10,0,0")
+        c_X = dataset.cameras["cam_front"].extrinsic.transform(np.array([10, 0, 0]))
+        print("on image plane")
+        print(dataset.cameras["cam_front"].transformGroundToImage(np.array([10, 0, 0])))
+
+        bev_front = dataset.cameras["cam_front"].transform()
+        ax[2][1].imshow(bev_front)
 
         plt.show()
