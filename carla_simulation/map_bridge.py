@@ -56,50 +56,23 @@ def plot_polygon(ax, polygon, fc="green", ec="black", *args, **kwargs):
         print(polygon)
 
 
-class Segment(object):
-    def __init__(self, waypoints: Tuple[carla.Waypoint]):
-        self.start = (
-            waypoints[0].transform.location.x,
-            # FIXME
-            waypoints[0].transform.location.y,
-        )
-        self.end = (
-            waypoints[1].transform.location.x,
-            # FIXME
-            waypoints[1].transform.location.y,
-        )
-
-        self.width = waypoints[0].lane_width / 2
-        self.line = shapely.geometry.LineString([self.start, self.end])
-
-    @property
-    def contour(self):
-        return self.line.buffer(self.s, cap_style=2)
-
-    @property
-    def boundaries(self):
-        left = self.line.parallel_offset(self.s, side="left")
-        right = self.line.parallel_offset(self.s, side="right")
-        return (left, right)
-
-
 class WaypointBoundaries:
     def __init__(self, waypoint: carla.Waypoint):
         self.waypoint = waypoint
         self.transform = waypoint.transform  # FIXME
         self.position = self.transform.location
-        self.yaw = -radians(self.transform.rotation.yaw)  # FIXME radians(...)
+        self.yaw = radians(self.transform.rotation.yaw)  # FIXME radians(...)
         self.width = waypoint.lane_width
 
         ox = -sin(self.yaw)
         oy = cos(self.yaw)
         self.middle = (self.position.x, -self.position.y)
         self.left = (
-            self.width / 2 * ox + self.position.x,
+            -self.width / 2 * ox + self.position.x,
             -self.width / 2 * oy + self.position.y,
         )
         self.right = (
-            -self.width / 2 * ox + self.position.x,
+            self.width / 2 * ox + self.position.x,
             self.width / 2 * oy + self.position.y,
         )
 
@@ -162,8 +135,7 @@ class MapBridge:
             self.lanes.append(lane)
             polys.append(lane.polygon)
             print(
-                "processing lane %s/%s, area: %s"
-                % (i, len(self.lane_topology), lane.polygon.area),
+                "processing lane %s/%s" % (i, len(self.lane_topology)),
                 end="\r",
             )
 
@@ -171,7 +143,7 @@ class MapBridge:
         self.str_tree = shapely.strtree.STRtree(self.lane_polyons)
         print()
 
-    def get_map_patch(self, box_dims, world_T_veh: Isometry):
+    def get_map_patch(self, box_dims, world_T_veh):
         # get all polygons in a bounding box
         # box_dims = [x, y]
         # m_ = world_T_veh.matrix
@@ -184,7 +156,6 @@ class MapBridge:
             -box_dims[0] / 2, -box_dims[1] / 2, box_dims[0] / 2, box_dims[1] / 2
         )
         query_box = shapely.affinity.affine_transform(query_box, coefficient_list)
-        # print(world_T_veh.location)
 
         # get all polys in this box
         filtered_polygons = self.str_tree.query(query_box)
@@ -230,21 +201,24 @@ if __name__ == "__main__":
         a.set_ylim([y_min - margin, y_max + margin])
 
     bridge.plot_polys(ax[0])
-    trafo = carla.Transform(carla.Location(x=160, y=-55))
+    trafo = carla.Transform(carla.Location(x=160, y=55))
 
     s = world.get_spectator()
     s.set_transform(trafo)
 
     iso = Isometry.from_carla_transform(trafo)
-    b, p = bridge.get_map_patch((40, 30), iso.matrix)
+    b, p = bridge.get_map_patch((40, 30), np.array(trafo.get_matrix()))
+    print("area")
+    print(p.area)
+    # b, p = bridge.get_map_patch((40, 30), iso.matrix)
     (x_min, y_min, x_max, y_max) = b.bounds
     # ax[1].set_xlim([x_min - margin, x_max + margin])
     # ax[1].set_ylim([y_min - margin, y_max + margin])
-    ax[1].set_xlim([-15 - margin, 15 + margin])
+    ax[1].set_xlim([-20 - margin, 20 + margin])
     ax[1].set_ylim([-15 - margin, 15 + margin])
 
     # convert to veh
-    m_ = np.array(iso.inverse().matrix)
+    m_ = np.array(trafo.get_inverse_matrix())
     coefficient_list = np.ravel(m_[:3, :3]).tolist()
     coefficient_list += np.ravel(m_[:3, 3]).tolist()
 
