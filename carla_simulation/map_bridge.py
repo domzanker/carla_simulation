@@ -45,8 +45,15 @@ def plot_line(ax, ob, color=None):
 
 
 def plot_polygon(ax, polygon, fc="green", ec="black", *args, **kwargs):
-    patch = PolygonPatch(polygon, fc=fc, ec=ec, *args, **kwargs)
-    ax.add_patch(patch)
+    if isinstance(polygon, shapely.geometry.Polygon):
+        if polygon.is_empty:
+            print("polygon empty")
+            return
+
+        patch = PolygonPatch(polygon, fc=fc, ec=ec, *args, **kwargs)
+        ax.add_patch(patch)
+    else:
+        print(polygon)
 
 
 class Segment(object):
@@ -81,18 +88,19 @@ class WaypointBoundaries:
         self.waypoint = waypoint
         self.transform = waypoint.transform  # FIXME
         self.position = self.transform.location
-        self.yaw = radians(self.transform.rotation.yaw)  # FIXME radians(...)
+        self.yaw = -radians(self.transform.rotation.yaw)  # FIXME radians(...)
         self.width = waypoint.lane_width
 
         ox = -sin(self.yaw)
         oy = cos(self.yaw)
+        self.middle = (self.position.x, -self.position.y)
         self.left = (
             self.width / 2 * ox + self.position.x,
-            self.width / 2 * oy + self.position.y,
+            -self.width / 2 * oy + self.position.y,
         )
         self.right = (
             -self.width / 2 * ox + self.position.x,
-            -self.width / 2 * oy + self.position.y,
+            self.width / 2 * oy + self.position.y,
         )
 
 
@@ -108,10 +116,7 @@ class Lane(object):
         if len(wbs) < 2:
 
             self.left_segments = shapely.geometry.Point(wbs[0].left)
-            self.middle_segments = shapely.geometry.Point(
-                [wbs[0].position.x, wbs[0].position.y]
-                # [wbs[0].position[0], wbs[0].position[1]] # FIXME
-            )
+            self.left_segments = shapely.geometry.Point(wbs[0].middle)
             self.right_segments = shapely.geometry.Point(wbs[0].right)
 
             self.polygon = shapely.geometry.Polygon(
@@ -122,7 +127,7 @@ class Lane(object):
 
             for w in wbs:
                 l.append(w.left)
-                m.append((w.position.x, w.position.y))
+                m.append((w.middle))
                 r.append(w.right)
 
             self.left_segments = shapely.geometry.LineString(l)
@@ -132,8 +137,7 @@ class Lane(object):
             poly = self.left_segments.coords[:]
             poly += self.right_segments.coords[::-1]
             # convert poly to rh coordinates
-            poly = shapely.geometry.Polygon(poly)
-            self.polygon = shapely.affinity.scale(poly, yfact=-1.0, origin=(0, 0, 0))
+            self.polygon = shapely.geometry.Polygon(poly)
 
 
 class MapBridge:
@@ -152,21 +156,27 @@ class MapBridge:
         polys = []
         print("")
         for i, waypoint in enumerate(self.lane_topology, 1):
-            print("processing lane %s/%s" % (i, len(self.lane_topology)), end="\r")
             lane = Lane(
                 seed_point=waypoint[0], discretization_step=self.waypoint_discretization
             )
             self.lanes.append(lane)
-
             polys.append(lane.polygon)
+            print(
+                "processing lane %s/%s, area: %s"
+                % (i, len(self.lane_topology), lane.polygon.area),
+                end="\r",
+            )
 
         self.lane_polyons = shapely.geometry.MultiPolygon(polys)
         self.str_tree = shapely.strtree.STRtree(self.lane_polyons)
+        print()
 
     def get_map_patch(self, box_dims, world_T_veh: Isometry):
         # get all polygons in a bounding box
         # box_dims = [x, y]
-        m_ = world_T_veh.matrix
+        # m_ = world_T_veh.matrix
+        # m_ = np.array(world_T_veh.get_matrix())
+        m_ = world_T_veh
         coefficient_list = np.ravel(m_[:3, :3]).tolist()
         coefficient_list += np.ravel(m_[:3, 3]).tolist()
 
@@ -174,6 +184,7 @@ class MapBridge:
             -box_dims[0] / 2, -box_dims[1] / 2, box_dims[0] / 2, box_dims[1] / 2
         )
         query_box = shapely.affinity.affine_transform(query_box, coefficient_list)
+        # print(world_T_veh.location)
 
         # get all polys in this box
         filtered_polygons = self.str_tree.query(query_box)
@@ -206,7 +217,7 @@ if __name__ == "__main__":
     client = carla.Client("localhost", 2000)
     client.set_timeout(10.0)  # seconds
 
-    world = client.load_world("Town03")
+    world = client.load_world("Town01")
 
     bridge = MapBridge(world, waypoint_discretization=0.05)
     bridge.load_lane_polygons()
@@ -219,10 +230,28 @@ if __name__ == "__main__":
         a.set_ylim([y_min - margin, y_max + margin])
 
     bridge.plot_polys(ax[0])
-    b, p = bridge.get_map_patch((30, 30), carla.Transform(carla.Location(x=80, y=-7.5)))
+    trafo = carla.Transform(carla.Location(x=160, y=-55))
+
+    s = world.get_spectator()
+    s.set_transform(trafo)
+
+    iso = Isometry.from_carla_transform(trafo)
+    b, p = bridge.get_map_patch((40, 30), iso.matrix)
     (x_min, y_min, x_max, y_max) = b.bounds
-    ax[1].set_xlim([x_min - margin, x_max + margin])
-    ax[1].set_ylim([y_min - margin, y_max + margin])
+    # ax[1].set_xlim([x_min - margin, x_max + margin])
+    # ax[1].set_ylim([y_min - margin, y_max + margin])
+    ax[1].set_xlim([-15 - margin, 15 + margin])
+    ax[1].set_ylim([-15 - margin, 15 + margin])
+
+    # convert to veh
+    m_ = np.array(iso.inverse().matrix)
+    coefficient_list = np.ravel(m_[:3, :3]).tolist()
+    coefficient_list += np.ravel(m_[:3, 3]).tolist()
+
+    p = shapely.affinity.affine_transform(p, coefficient_list)
+
+    # print([y for y in p.exterior.coords])
+    print([y for y in b.exterior.coords])
 
     plot_polygon(
         ax[0],
