@@ -49,7 +49,7 @@ def isometry_to_carla(isometry: Isometry):
 
 
 class Dataset:
-    def __init__(self, world):
+    def __init__(self, world, vehicle_spawn_point=0):
         self.cameras = {}
         self.camera_queues = {}
         self.sensor_calibrations = {}
@@ -57,7 +57,9 @@ class Dataset:
         self.roi = [30, 20]
         self.resolution = 0.04
 
-        self.sensor_platform = SensorPlatform(world)
+        spawn_points = world.get_map().get_spawn_points()
+        spawn_point = spawn_points[vehicle_spawn_point]
+        self.sensor_platform = SensorPlatform(world, spawn_point)
 
         top_view = {
             "top_view": {

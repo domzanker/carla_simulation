@@ -28,17 +28,16 @@ from pyquaternion import Quaternion
 
 
 class SensorPlatform:
-    def __init__(self, world):
+    def __init__(self, world, spawn_point):
         self.world = world
 
         self.vehicle = self.world.get_blueprint_library().find(
-            "vehicle.mercedes-benz.coupe"
+            # "vehicle.mercedes-benz.coupe"
+            "vehicle.bmw.isetta"
         )
         self.vehicle.set_attribute("role_name", "ego")
-        self.spawn_points = world.get_map().get_spawn_points()
 
-        self.ego_vehicle = world.spawn_actor(self.vehicle, self.spawn_points[1])
-
+        self.ego_vehicle = world.spawn_actor(self.vehicle, spawn_point)
         self.ego_vehicle.set_autopilot(True)
 
         self.cameras = {}
@@ -49,7 +48,7 @@ class SensorPlatform:
         self.imu = self.world.spawn_actor(
             imu_bp, carla.Transform(), attach_to=self.ego_vehicle
         )
-        self.ego_pose = Queue(1)
+        self.ego_pose = Queue()
         self.imu.listen(lambda data: self.ego_pose.put(data))
 
     def add_topview(
@@ -84,7 +83,7 @@ class SensorPlatform:
             blueprint, veh_T_sensor, attach_to=self.ego_vehicle
         )
         sensor.set_location(veh_T_sensor.location)
-        q_ = Queue(1)
+        q_ = Queue()
         self.cameras[name] = (sensor, q_)
         # sensor.listen(lambda data: self.reference_callback(data, q_))
         sensor.listen(lambda data: q_.put(data))
@@ -121,7 +120,7 @@ class SensorPlatform:
         )
         sensor.set_location(veh_T_sensor.location)
 
-        q_ = Queue(1)
+        q_ = Queue()
         self.cameras[name] = (sensor, q_)
         # sensor.listen(lambda data: self.reference_callback(data, q_))
         sensor.listen(lambda data: q_.put(data))
@@ -151,7 +150,8 @@ class SensorPlatform:
         sensor = self.world.spawn_actor(
             blueprint, veh_T_sensor, attach_to=self.ego_vehicle
         )
-        q_ = Queue(1)
+        blueprint.set_attribute("sensor_tick", "1.0")
+        q_ = Queue()
         self.lidars[name] = (sensor, q_)
         sensor.listen(lambda data: q_.put(data))
         lidar = Lidar(id=name, extrinsic=Isometry.from_carla_transform(veh_T_sensor))
