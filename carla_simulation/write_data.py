@@ -17,7 +17,7 @@ except IndexError:
     pass
 
 import carla
-from carla_simulation.dataset import Dataset
+from dataset import Dataset
 from shapely import speedups
 
 if speedups.available:
@@ -27,58 +27,124 @@ if speedups.available:
 from pathlib import Path
 import yaml
 
-# create a world
 
-# first define a client
-client = carla.Client("localhost", 2000)
-client.set_timeout(10.0)  # seconds
+def main(args):
+    # create a world
+    # first define a client
+    client = carla.Client(args.server_addr, args.server_port)
+    client.set_timeout(10.0)  # seconds
 
-town = "Town01"
-world = client.load_world(town)
-settings = world.get_settings()
-settings.synchronous_mode = True  # True
-# TODO
-settings.fixed_delta_seconds = 0.1
+    town = args.map
+    step_delta = args.step_delta
+    duration = args.scene_length
 
-world.apply_settings(settings)
+    world = client.load_world(town)
+    world.set_weather(carla.WeatherParameters.ClearNoon)
 
-spectator = world.get_spectator()
+    spectator = world.get_spectator()
+
+    # TODO: setup folder structure
+    base = Path(args.base_path)
+
+    root = base / town
+    root.mkdir(parents=True, exist_ok=True)
+
+    spawn_point = args.spawn_point
+    scene_dir = root / ("scene_%s" % spawn_point)
+
+    ticks_per_scene = int(duration // step_delta)
+    ticks_per_second = 1 / step_delta
+    # fix sensor rate at 2hz
+    sample_rate = 2  # [hz]
+
+    ticks_per_sample = ticks_per_second / sample_rate
+
+    dataset = Dataset(
+        world, vehicle_spawn_point=spawn_point, sensor_tick=1 / sample_rate
+    )
+
+    # TODO tidy up
+    tm = client.get_trafficmanager(8000)
+    # dataset.sensor_platform.ego_vehicle.set_target_velocity(carla.Vector3D(50, 0, 0))
+    dataset.sensor_platform.ego_vehicle.set_autopilot(True, 8000)
+
+    spec = dataset.ego_pose
+    spec.location.z = 3
+    spectator.set_transform(spec)
+    step = 0
+
+    settings = world.get_settings()
+    settings.synchronous_mode = True  # True
+    settings.fixed_delta_seconds = step_delta
+    world.apply_settings(settings)
+
+    for i in range(ticks_per_scene):
+
+        frame = world.tick()
+        print("simulation time: frame %s -- %s sec" % (frame, round(i * step_delta, 3)))
+        if i % ticks_per_sample == 0:  # and i > 0:
+            print("sensor tick")
+            sample_dir = scene_dir / ("sample_%s" % step)
+            sample_dir.mkdir(parents=True, exist_ok=True)
+            # generate one sample from every tick
+
+            sample = dataset.get_sample(frame_id=frame - 5, include_map=False)
+            if sample == False:
+                continue
+
+            spec = dataset.ego_pose
+            spec.location.z = 2
+            spectator.set_transform(spec)
+
+            sample_dict = {}
+            sample_dict["ego_pose"] = {
+                "rotation": {
+                    "roll": dataset.ego_pose.rotation.roll,
+                    "pitch": dataset.ego_pose.rotation.roll,
+                    "yaw": dataset.ego_pose.rotation.yaw,
+                },
+                "location": [
+                    dataset.ego_pose.location.x,
+                    dataset.ego_pose.location.y,
+                    dataset.ego_pose.location.z,
+                ],
+            }
+            sample_dict["sensors"] = {}
+            for name, lidar in dataset.lidars.items():
+                export_dict = {}
+                export_file = lidar.exportPCD(sample_dir)
+                export_dict["data"] = str(export_file.relative_to(root))
+                export_dict["extrinsic"] = lidar.M.tolist()
+                sample_dict["sensors"][lidar.id] = export_dict
+
+            for name, cam in dataset.cameras.items():
+                export_dict = {}
+                export_file = cam.write_data(sample_dir)
+                export_dict["data"] = str(export_file.relative_to(root))
+                export_dict["extrinsic"] = cam.M.tolist()
+                export_dict["intrinsic"] = cam.K.tolist()
+                sample_dict["sensors"][cam.id] = export_dict
+
+            sample_file = sample_dir / "sample.yaml"
+            with sample_file.open("w+") as f:
+                yaml.safe_dump(sample_dict, f)
+            del sample_dict
+            step += 1
 
 
-dataset = Dataset(world)
-# TODO: setup folder structure
-BASEPATH = "/home/dominic/data/carla"
-base = Path(BASEPATH)
+if __name__ == "__main__":
+    import argparse
 
-root = base / town
-root.mkdir(parents=True, exist_ok=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--map", type=str, default="Town01")
+    parser.add_argument("--server_addr", type=str, default="localhost")
+    parser.add_argument("--server_port", type=int, default=2000)
+    parser.add_argument("--base_path", type=str, default="home/dominic/data/carla")
 
-steps = 10
-for i in range(steps):
-    sample_dir = root / ("sample_%s" % i)
-    sample_dir.mkdir(exist_ok=True)
-    # generate one sample from every tick
-    world.tick()
+    parser.add_argument("--step_delta", type=float, default=0.05)
+    parser.add_argument("--scene_length", type=int, default=90)
 
-    sample = dataset.get_sample()
+    parser.add_argument("--spawn_point", type=int, default=0)
 
-    sample_dict = {}
-    sample_dict["ego_pose"] = dataset.ego_pose
-    for name, lidar in dataset.lidars.items():
-        export_dict = {}
-        export_file = lidar.exportPCD(sample_dir)
-        export_dict["data"] = str(export_file.relative_to(root))
-        export_dict["extrinsic"] = lidar.M
-        sample_dict["sensors"][lidar.id] = export_dict
-
-    for name, cam in dataset.cameras.items():
-        export_dict = {}
-        export_file = lidar.write_data(sample_dir)
-        export_dict["data"] = str(export_file.relative_to(root))
-        export_dict["extrinsic"] = lidar.M
-        export_dict["intrinsic"] = lidar.K
-        sample_dict["sensors"][cam.id] = export_dict
-
-    sample_file = sample_dir / "sample.pkl"
-    with sample_file.open("w+") as f:
-        yaml.safe_dump(sample_dict)
+    args = parser.parse_args()
+    main(args)
