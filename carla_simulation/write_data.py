@@ -139,7 +139,7 @@ if __name__ == "__main__":
     parser.add_argument("--map", type=str, default="Town01")
     parser.add_argument("--server_addr", type=str, default="localhost")
     parser.add_argument("--server_port", type=int, default=2000)
-    parser.add_argument("--base_path", type=str, default="home/dominic/data/carla")
+    parser.add_argument("--base_path", type=str, default="~/carla")
 
     parser.add_argument("--step_delta", type=float, default=0.05)
     parser.add_argument("--scene_length", type=int, default=90)
