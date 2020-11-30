@@ -49,7 +49,7 @@ def isometry_to_carla(isometry: Isometry):
 
 
 class Dataset:
-    def __init__(self, world, vehicle_spawn_point=0):
+    def __init__(self, world, vehicle_spawn_point=0, sensor_tick=5):
         self.cameras = {}
         self.camera_queues = {}
         self.sensor_calibrations = {}
@@ -59,7 +59,7 @@ class Dataset:
 
         spawn_points = world.get_map().get_spawn_points()
         spawn_point = spawn_points[vehicle_spawn_point]
-        self.sensor_platform = SensorPlatform(world, spawn_point)
+        self.sensor_platform = SensorPlatform(world, spawn_point, sensor_tick)
 
         top_view = {
             "top_view": {
@@ -153,11 +153,11 @@ class Dataset:
                     "rotation": carla.Rotation(roll=0, pitch=0, yaw=0),
                 },
                 "intrinsic": {
-                    "rotation_frequency": 10,
-                    "points_per_second": 120000,
-                    "range": 50,
+                    "rotation_frequency": 20,  #  / sensor_tick,
+                    "points_per_second": 90000,
+                    "range": 35,
                     "channels": 32,
-                    "lower_fov": -30,
+                    "lower_fov": -15,
                     "upper_fov": 5,
                     "dropoff_general_rate": 0.30,
                 },
@@ -178,14 +178,27 @@ class Dataset:
         self.map_bridge = MapBridge(world)
         self.map_bridge.load_lane_polygons()
 
-        self.ego_pose = Isometry([0, 0, 0])
+        self.ego_pose = spawn_point
 
-    def get_sample(self, include_map: bool = True):
+    def get_sample(self, frame_id, include_map: bool = True):
         # get images
-        imu = self.sensor_platform.ego_pose.get()
-        self.ego_pose = imu.transform
+        """
+        for k, i in self.camera_queues.items():
+            print(k)
+            print(i.qsize())
+        for k, i in self.lidar_queues.items():
+            print(k)
+            print(i.qsize())
+        """
         for name, lidar in self.lidars.items():
             lidar_data = self.lidar_queues[name].get()
+            # frame_id = lidar_data.frame
+            while lidar_data.frame != frame_id:
+                if self.lidar_queues[name].empty():
+                    print(name + " empty")
+                    return False
+                lidar_data = self.lidar_queues[name].get()
+
             point_cloud = np.frombuffer(lidar_data.raw_data, dtype=np.float32).reshape(
                 [-1, 4]
             )
@@ -200,9 +213,22 @@ class Dataset:
             lidar.load_data(data=point_cloud)
             lidar.transformLidarToVehicle()
 
+        imu = self.sensor_platform.ego_pose.get()
+        while imu.frame != frame_id:
+            if self.sensor_platform.ego_pose.empty():
+                print("imu empty")
+                return False
+            imu = self.sensor_platform.ego_pose.get()
+        self.ego_pose = imu.transform
+
         for name, cam in self.cameras.items():
+            cam_data = self.camera_queues[name].get()
+            while cam_data.frame != frame_id:
+                if self.camera_queues[name].empty():
+                    print(name + " empty")
+                    return False
+                cam_data = self.camera_queues[name].get()
             if name == "top_view":
-                cam_data = self.camera_queues["top_view"].get()
                 cc = carla.ColorConverter.CityScapesPalette
                 np_img = np.frombuffer(
                     cam_data.raw_data, dtype=np.uint8
@@ -215,7 +241,6 @@ class Dataset:
                 self.cameras[name].load_data(data=np_img)
 
             else:
-                cam_data = self.camera_queues[name].get()
                 np_img = np.frombuffer(
                     cam_data.raw_data, dtype=np.uint8
                 ).copy()  # .copy()
@@ -223,7 +248,6 @@ class Dataset:
                 np_img = np_img[:, :, :3]
                 np_img = np_img[:, :, ::-1]
                 self.cameras[name].load_data(data=np_img)
-                # self.cameras[name].drawCalibration()
 
         if include_map:
             # extract map patch
@@ -239,15 +263,84 @@ class Dataset:
             # road polygons in vehicle pose
             veh_poly = shapely.affinity.affine_transform(poly, coefficient_list)
 
-            im_poly = []
-            for x, y in veh_poly.exterior.coords:
-                image_points = self.cameras["cam_front"].transformGroundToImage(
-                    np.array([x, y])
-                )
-                if np.all(image_points >= 0):
-                    im_poly.append(image_points)
+            im_poly_exterior = []
+            if isinstance(veh_poly, shapely.geometry.MultiPolygon):
+                ipe = []
+                for geom in veh_poly.geoms:
+                    for x, y in geom.exterior.coords:
+                        image_points = self.cameras["top_view"].transformGroundToImage(
+                            np.array([x, y])
+                        )
+                        if np.all(image_points >= 0):
+                            image_points = (
+                                np.squeeze(image_points).astype("int").tolist()
+                            )
+                            ipe.append(image_points)
+                im_poly_exterior.append(ipe)
 
-            img_poly = shapely.geometry.Polygon(im_poly)
+                boundaries = np.zeros(
+                    [
+                        int(self.roi[0] // self.resolution),
+                        int(self.roi[0] // self.resolution),
+                        1,
+                    ]
+                )
+                p = []
+                for i in im_poly_exterior:
+                    for x, y in i:
+                        try:
+                            boundaries[y, x] = 255
+                        except IndexError:
+                            pass
+                    p.append(shapely.geometry.Polygon(i))
+
+                img_poly = shapely.geometry.MultiPolygon(p)  # , holes=im_poly_interior
+            else:
+                for geom in veh_poly.geoms:
+                    for x, y in geom.exterior.coords:
+                        image_points = self.cameras["top_view"].transformGroundToImage(
+                            np.array([x, y])
+                        )
+                        if np.all(image_points >= 0):
+                            image_points = (
+                                np.squeeze(image_points).astype("int").tolist()
+                            )
+                            ipe.append(image_points)
+                boundaries = np.zeros(
+                    [
+                        int(self.roi[0] // self.resolution),
+                        int(self.roi[0] // self.resolution),
+                        1,
+                    ]
+                )
+                for x, y in im_poly_exterior:
+                    try:
+                        boundaries[y, x] = 255
+                    except IndexError:
+                        pass
+
+                img_poly = shapely.geometry.Polygon(
+                    im_poly_exterior  # , holes=im_poly_interior
+                )
+
+            """
+            im_poly_interior = []
+            for hole in veh_poly.interiors:
+                h_ = []
+                for x, y in hole.coords:
+                    image_points = self.cameras["top_view"].transformGroundToImage(
+                        np.array([x, y])
+                    )
+                    if np.all(image_points >= 0):
+                        h_.append(image_points)
+                im_poly_interior.append(h_)
+            """
+
+            """
+            boundaries = cv2.polylines(
+                boundaries, im_poly_exterior, isClosed=False, color=(255)
+            )
+            """
 
             return {
                 "image": top_view_img,
@@ -255,6 +348,7 @@ class Dataset:
                 "world_poly": poly,
                 "image_poly": img_poly,  # FIXME
                 "vehicle_poly": veh_poly,
+                "boundaries": boundaries,
             }
         else:
             return {}
@@ -276,23 +370,41 @@ if __name__ == "__main__":
     client = carla.Client("localhost", 2000)
     client.set_timeout(10.0)  # seconds
 
-    world = client.load_world("Town01")
-    settings = world.get_settings()
-    settings.synchronous_mode = True  # True
-    settings.fixed_delta_seconds = 0.5
-    world.apply_settings(settings)
+    world = client.load_world("Town05")
 
-    dataset = Dataset(world)
+    dataset = Dataset(world, 4, sensor_tick=0.5)
 
     spectator = world.get_spectator()
+    spec = dataset.ego_pose
+    spec.location.z = 2
+    spectator.set_transform(spec)
 
-    frames = 100
-    for frame in range(frames):
+    tm = client.get_trafficmanager(8000)
+    # dataset.sensor_platform.ego_vehicle.set_target_velocity(carla.Vector3D(5, 0, 0))
+    dataset.sensor_platform.ego_vehicle.set_autopilot(True, 8000)
 
-        world.tick()
+    frames = 1000
+    [world.tick() for i in range(10)]
 
-        sample = dataset.get_sample()
-        spectator.set_transform(dataset.sensor_platform.ego_vehicle.get_transform())
+    settings = world.get_settings()
+    settings.synchronous_mode = True  # True
+    settings.fixed_delta_seconds = 0.05
+    world.apply_settings(settings)
+
+    for fr in range(frames):
+
+        frame = world.tick()
+        if fr % 25 != 0:
+            continue
+        print("Frame: %s" % frame)
+
+        sample = dataset.get_sample(frame_id=frame - 5)
+        if sample is False:
+            continue
+
+        spec = dataset.ego_pose
+        spec.location.z = 2
+        spectator.set_transform(spec)
 
         fig, ax = plt.subplots(3, 4)
         (x_min, y_min, x_max, y_max) = dataset.map_bridge.lane_polyons.bounds
@@ -301,11 +413,10 @@ if __name__ == "__main__":
         ax[0][2].set_ylim([y_min - margin, y_max + margin])
 
         ax[0][0].imshow(sample["image"])
-        ax[0][1].imshow(sample["image"])
+        ax[0][1].imshow(sample["boundaries"])
         dataset.map_bridge.plot_polys(ax[0][2])
         # plot_polygon(ax[0][1], sample["image_poly"], fc="blue", ec="black", alpha=0.4)
 
-        print([p for p in sample["query_box"].exterior.coords])
         plot_polygon(ax[0][2], sample["query_box"], fc="blue", ec="blue", alpha=0.5)
         ax[0][2].set_aspect("equal")
         (x_min, y_min, x_max, y_max) = sample["vehicle_poly"].bounds
@@ -318,8 +429,12 @@ if __name__ == "__main__":
         margin = 2
         ax[0][3].set_xlim([x_min - margin, x_max + margin])
         ax[0][3].set_ylim([y_min - margin, y_max + margin])
-        plot_polygon(ax[0][3], sample["vehicle_poly"])
-        plot_polygon(ax[1][1], sample["image_poly"], alpha=0.5)
+        plot_polygon(ax[0][3], sample["image_poly"])
+        if isinstance(sample["image_poly"], shapely.geometry.MultiPolygon):
+            for g in sample["image_poly"].geoms:
+                plot_polygon(ax[0][0], g, alpha=0.5)
+        else:
+            plot_polygon(ax[0][0], sample["image_poly"], alpha=0.5)
         ax[0][3].plot([0], [0], marker="o", markersize=3)
         ax[0][3].set_aspect("equal")
 

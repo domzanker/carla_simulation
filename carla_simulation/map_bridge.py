@@ -212,10 +212,10 @@ if __name__ == "__main__":
     print(p.area)
     # b, p = bridge.get_map_patch((40, 30), iso.matrix)
     (x_min, y_min, x_max, y_max) = b.bounds
-    # ax[1].set_xlim([x_min - margin, x_max + margin])
-    # ax[1].set_ylim([y_min - margin, y_max + margin])
-    ax[1].set_xlim([-20 - margin, 20 + margin])
-    ax[1].set_ylim([-15 - margin, 15 + margin])
+    ax[1].set_xlim([x_min - margin, x_max + margin])
+    ax[1].set_ylim([y_min - margin, y_max + margin])
+    # ax[1].set_xlim([-20 - margin, 20 + margin])
+    # ax[1].set_ylim([-15 - margin, 15 + margin])
 
     # convert to veh
     m_ = np.array(trafo.get_inverse_matrix())
@@ -224,6 +224,9 @@ if __name__ == "__main__":
 
     p = shapely.affinity.affine_transform(p, coefficient_list)
 
+    (x_min, y_min, x_max, y_max) = p.bounds
+    ax[1].set_xlim([x_min - margin, x_max + margin])
+    ax[1].set_ylim([y_min - margin, y_max + margin])
     # print([y for y in p.exterior.coords])
     print([y for y in b.exterior.coords])
 
