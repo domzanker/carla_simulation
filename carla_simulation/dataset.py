@@ -180,16 +180,11 @@ class Dataset:
 
         self.ego_pose = spawn_point
 
+        self.road_boundaries = []
+
     def get_sample(self, frame_id, include_map: bool = True):
+        self.road_boundaries = []
         # get images
-        """
-        for k, i in self.camera_queues.items():
-            print(k)
-            print(i.qsize())
-        for k, i in self.lidar_queues.items():
-            print(k)
-            print(i.qsize())
-        """
         for name, lidar in self.lidars.items():
             lidar_data = self.lidar_queues[name].get()
             # frame_id = lidar_data.frame
@@ -263,93 +258,97 @@ class Dataset:
             # road polygons in vehicle pose
             veh_poly = shapely.affinity.affine_transform(poly, coefficient_list)
 
+            self.boundaries_img = np.full(
+                [
+                    self.cameras["top_view"].data.shape[0],
+                    self.cameras["top_view"].data.shape[1],
+                    1,
+                ],
+                255,
+                dtype=np.uint8,
+            )
+
             im_poly_exterior = []
-            if isinstance(veh_poly, shapely.geometry.MultiPolygon):
+            im_poly_interior = []
+            if veh_poly.type == "MultiPolygon":
                 ipe = []
                 for geom in veh_poly.geoms:
                     for x, y in geom.exterior.coords:
                         image_points = self.cameras["top_view"].transformGroundToImage(
                             np.array([x, y])
                         )
-                        if np.all(image_points >= 0):
-                            image_points = (
-                                np.squeeze(image_points).astype("int").tolist()
-                            )
-                            ipe.append(image_points)
+                        # if np.all(image_points >= 0):
+                        image_points = np.squeeze(image_points).astype("int").tolist()
+                        ipe.append(image_points)
+
+                    for hole in geom.interiors:
+                        h_ = []
+                        for x, y in hole.coords:
+                            image_points = self.cameras[
+                                "top_view"
+                            ].transformGroundToImage(np.array([x, y]))
+                            # if np.all(image_points >= 0):
+                            h_.append(image_points)
+
+                        im_poly_interior.append(h_)
+                    poly = shapely.geometry.Polygon(ipe)
                 im_poly_exterior.append(ipe)
 
-                boundaries = np.zeros(
-                    [
-                        int(self.roi[0] // self.resolution),
-                        int(self.roi[0] // self.resolution),
-                        1,
-                    ]
-                )
                 p = []
                 for i in im_poly_exterior:
-                    for x, y in i:
-                        try:
-                            boundaries[y, x] = 255
-                        except IndexError:
-                            pass
-                    p.append(shapely.geometry.Polygon(i))
+                    p.append(shapely.geometry.Polygon(np.array(i)))
 
-                img_poly = shapely.geometry.MultiPolygon(p)  # , holes=im_poly_interior
             else:
-                for geom in veh_poly.geoms:
-                    for x, y in geom.exterior.coords:
-                        image_points = self.cameras["top_view"].transformGroundToImage(
-                            np.array([x, y])
-                        )
-                        if np.all(image_points >= 0):
-                            image_points = (
-                                np.squeeze(image_points).astype("int").tolist()
-                            )
-                            ipe.append(image_points)
-                boundaries = np.zeros(
-                    [
-                        int(self.roi[0] // self.resolution),
-                        int(self.roi[0] // self.resolution),
-                        1,
-                    ]
-                )
-                for x, y in im_poly_exterior:
-                    try:
-                        boundaries[y, x] = 255
-                    except IndexError:
-                        pass
 
-                img_poly = shapely.geometry.Polygon(
-                    im_poly_exterior  # , holes=im_poly_interior
-                )
-
-            """
-            im_poly_interior = []
-            for hole in veh_poly.interiors:
-                h_ = []
-                for x, y in hole.coords:
+                ipe = []
+                for x, y in veh_poly.exterior.coords:
                     image_points = self.cameras["top_view"].transformGroundToImage(
                         np.array([x, y])
                     )
-                    if np.all(image_points >= 0):
+                    # if np.all(image_points >= 0):
+                    image_points = np.squeeze(image_points).astype("int").tolist()
+                    ipe.append(image_points)
+                im_poly_exterior.append(ipe)
+
+                im_poly_interior = []
+                for hole in veh_poly.interiors:
+                    h_ = []
+                    for x, y in hole.coords:
+                        image_points = self.cameras["top_view"].transformGroundToImage(
+                            np.array([x, y])
+                        )
+                        # if np.all(image_points >= 0):
                         h_.append(image_points)
-                im_poly_interior.append(h_)
-            """
+                    im_poly_interior.append(h_)
 
-            """
-            boundaries = cv2.polylines(
-                boundaries, im_poly_exterior, isClosed=False, color=(255)
-            )
-            """
+                img_poly = shapely.geometry.Polygon(
+                    np.array(im_poly_exterior[0], holes=im_poly_interior)
+                )
 
-            return {
-                "image": top_view_img,
-                "query_box": bb,
-                "world_poly": poly,
-                "image_poly": img_poly,  # FIXME
-                "vehicle_poly": veh_poly,
-                "boundaries": boundaries,
-            }
+            self.road_boundaries.append(im_poly_exterior)
+            self.road_boundaries.append(im_poly_interior)
+            for exterior_bounds in im_poly_exterior:
+                polyline = np.array(exterior_bounds, dtype=np.int32)
+                print(polyline.shape)
+                self.boundaries_img = cv2.polylines(
+                    self.boundaries_img,
+                    polyline[np.newaxis, :, :],
+                    # polyline,
+                    isClosed=False,
+                    color=0,
+                )
+            for interior_bounds in im_poly_interior:
+                polyline = np.array(interior_bounds, dtype=np.int32)
+                print(polyline.shape)
+                self.boundaries_img = cv2.polylines(
+                    self.boundaries_img,
+                    polyline[np.newaxis, :, :],
+                    # polyline,
+                    isClosed=True,
+                    color=0,
+                )
+
+                return True
         else:
             return {}
 
@@ -370,7 +369,7 @@ if __name__ == "__main__":
     client = carla.Client("localhost", 2000)
     client.set_timeout(10.0)  # seconds
 
-    world = client.load_world("Town05")
+    world = client.load_world("Town03")
 
     dataset = Dataset(world, 4, sensor_tick=0.5)
 
@@ -412,14 +411,14 @@ if __name__ == "__main__":
         ax[0][2].set_xlim([x_min - margin, x_max + margin])
         ax[0][2].set_ylim([y_min - margin, y_max + margin])
 
-        ax[0][0].imshow(sample["image"])
-        ax[0][1].imshow(sample["boundaries"])
+        # ax[0][0].imshow(sample["image"])
+        ax[0][1].imshow(dataset.boundaries_img)
         dataset.map_bridge.plot_polys(ax[0][2])
         # plot_polygon(ax[0][1], sample["image_poly"], fc="blue", ec="black", alpha=0.4)
 
-        plot_polygon(ax[0][2], sample["query_box"], fc="blue", ec="blue", alpha=0.5)
+        # plot_polygon(ax[0][2], sample["query_box"], fc="blue", ec="blue", alpha=0.5)
         ax[0][2].set_aspect("equal")
-        (x_min, y_min, x_max, y_max) = sample["vehicle_poly"].bounds
+        # (x_min, y_min, x_max, y_max) = sample["vehicle_poly"].bounds
         """
         x_max = dataset.roi[0] // 2
         x_min = -x_max
@@ -429,12 +428,15 @@ if __name__ == "__main__":
         margin = 2
         ax[0][3].set_xlim([x_min - margin, x_max + margin])
         ax[0][3].set_ylim([y_min - margin, y_max + margin])
-        plot_polygon(ax[0][3], sample["image_poly"])
-        if isinstance(sample["image_poly"], shapely.geometry.MultiPolygon):
+        # plot_polygon(ax[0][3], sample["image_poly"])
+        """
+        if sample["image_poly"].type == "MultiPolygon":
+
             for g in sample["image_poly"].geoms:
                 plot_polygon(ax[0][0], g, alpha=0.5)
         else:
             plot_polygon(ax[0][0], sample["image_poly"], alpha=0.5)
+        """
         ax[0][3].plot([0], [0], marker="o", markersize=3)
         ax[0][3].set_aspect("equal")
 
@@ -450,15 +452,6 @@ if __name__ == "__main__":
             dataset.lidars["lidar_top"].data[0, :],
             s=1,
         )
-
-        print()
-        # transform bev
-        # print("principal point on ground")
-        # print(dataset.cameras["cam_front"].transformImageToGround(np.array([960, 540])))
-        print("point 10,0,0")
-        c_X = dataset.cameras["cam_front"].extrinsic.transform(np.array([10, 0, 0]))
-        print("on image plane")
-        print(dataset.cameras["cam_front"].transformGroundToImage(np.array([10, 0, 0])))
 
         bev_front = dataset.cameras["cam_front"].transform()
         ax[2][1].imshow(bev_front)

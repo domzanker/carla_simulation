@@ -1,6 +1,7 @@
 import glob
 import os
 import sys
+import cv2
 
 try:
     sys.path.append(
@@ -97,6 +98,9 @@ def main(args):
             spectator.set_transform(spec)
 
             sample_dict = {}
+            sample_dict["road_boundaries"] = dataset.road_boundaries
+            cv2.imwrite(str(sample_dir / "road_boundary.png"), dataset.boundaries_img)
+
             sample_dict["ego_pose"] = {
                 "rotation": {
                     "roll": dataset.ego_pose.rotation.roll,
