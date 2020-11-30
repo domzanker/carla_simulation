@@ -37,12 +37,20 @@ class SensorPlatform:
         self.vehicle.set_attribute("role_name", "ego")
         self.spawn_points = world.get_map().get_spawn_points()
 
-        self.ego_pose = self.spawn_points[0]
-        self.ego_vehicle = world.spawn_actor(self.vehicle, self.ego_pose)
+        self.ego_vehicle = world.spawn_actor(self.vehicle, self.spawn_points[1])
+
         self.ego_vehicle.set_autopilot(True)
 
         self.cameras = {}
         self.lidars = {}
+
+        imu_bp = self.world.get_blueprint_library().find("sensor.other.imu")
+        imu_bp.set_attribute("sensor_tick", "1.0")
+        self.imu = self.world.spawn_actor(
+            imu_bp, carla.Transform(), attach_to=self.ego_vehicle
+        )
+        self.ego_pose = Queue(1)
+        self.imu.listen(lambda data: self.ego_pose.put(data))
 
     def add_topview(
         self,
@@ -88,7 +96,7 @@ class SensorPlatform:
             intrinsic=K,
             crop_horizon=False,
         )
-        return bev, q_
+        return bev, q_, sensor.get_transform()
 
     def add_camera(
         self,
@@ -128,7 +136,7 @@ class SensorPlatform:
             out_size=(500, 750),
             crop_horizon=True,
         )
-        return bev, q_
+        return bev, q_, sensor.get_transform()
 
     def add_lidar(
         self,
@@ -147,7 +155,7 @@ class SensorPlatform:
         self.lidars[name] = (sensor, q_)
         sensor.listen(lambda data: q_.put(data))
         lidar = Lidar(id=name, extrinsic=Isometry.from_carla_transform(veh_T_sensor))
-        return lidar, q_
+        return lidar, q_, sensor.get_transform()
 
     def reference_callback(self, data, queue):
         self.ego_pose = self.ego_vehicle.get_transform()
