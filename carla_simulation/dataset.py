@@ -52,6 +52,7 @@ class Dataset:
     def __init__(self, world):
         self.cameras = {}
         self.camera_queues = {}
+        self.sensor_calibrations = {}
 
         self.roi = [30, 20]
         self.resolution = 0.04
@@ -68,9 +69,10 @@ class Dataset:
             }
         }
 
-        cam, queue = self.sensor_platform.add_topview(
+        extrinsic = carla.Transform(**top_view["top_view"]["extrinsic"])
+        cam, queue, vTs = self.sensor_platform.add_topview(
             "top_view",
-            veh_T_sensor=carla.Transform(**top_view["top_view"]["extrinsic"]),
+            veh_T_sensor=extrinsic,
             blueprint="sensor.camera.semantic_segmentation",
             roi=self.roi,
             resolution=self.resolution,
@@ -78,11 +80,13 @@ class Dataset:
         )
         self.cameras["top_view"] = cam
         self.camera_queues["top_view"] = queue
+        # self.sensor_calibrations["top_view"] = Isometry.from_carla_transform(vTs)
+        self.sensor_calibrations["top_view"] = vTs
 
         camera_setup = {
             "cam_front": {
                 "extrinsic": {
-                    "location": carla.Location(x=0.0, y=0.0, z=2),
+                    "location": carla.Location(x=1.0, y=0.0, z=2),
                     "rotation": carla.Rotation(roll=0, pitch=0, yaw=0),
                 },
                 "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
@@ -101,6 +105,27 @@ class Dataset:
                 },
                 "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
             },
+            "cam_back": {
+                "extrinsic": {
+                    "location": carla.Location(x=-1.0, y=0.0, z=2),
+                    "rotation": carla.Rotation(roll=0, pitch=0, yaw=180),
+                },
+                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
+            },
+            "cam_back_left": {
+                "extrinsic": {
+                    "location": carla.Location(x=-1.5, y=-0.5, z=1.5),
+                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=-135),
+                },
+                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
+            },
+            "cam_back_right": {
+                "extrinsic": {
+                    "location": carla.Location(x=-1.5, y=0.5, z=1.5),
+                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=135),
+                },
+                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
+            },
         }
         # "cam_front_left": {},
         # "cam_front_right": {},
@@ -108,13 +133,14 @@ class Dataset:
         # "cam_back_left": {},
         # "cam_back_right": {},
         for cam, configs in camera_setup.items():
-            bev, q_ = self.sensor_platform.add_camera(
+            bev, q_, vTs = self.sensor_platform.add_camera(
                 name=cam,
                 veh_T_sensor=carla.Transform(**configs["extrinsic"]),
                 **configs["intrinsic"],
             )
             self.cameras[cam] = bev
             self.camera_queues[cam] = q_
+            self.sensor_calibrations[cam] = Isometry.from_carla_transform(vTs)
 
         self.lidars = {}
         self.lidar_queues = {}
@@ -125,9 +151,9 @@ class Dataset:
                     "rotation": carla.Rotation(roll=0, pitch=0, yaw=0),
                 },
                 "intrinsic": {
-                    "rotation_frequency": 20,
-                    "points_per_second": 56000,
-                    "range": 30,
+                    "rotation_frequency": 10,
+                    "points_per_second": 120000,
+                    "range": 50,
                     "channels": 32,
                     "lower_fov": -30,
                     "upper_fov": 5,
@@ -136,21 +162,26 @@ class Dataset:
             }
         }
         for lidar, configs in lidar_setup.items():
-            l, q_ = self.sensor_platform.add_lidar(
+            l, q_, veh_T_sensor = self.sensor_platform.add_lidar(
                 name=lidar,
                 veh_T_sensor=carla.Transform(**configs["extrinsic"]),
                 **configs["intrinsic"],
             )
             self.lidar_queues[lidar] = q_
             self.lidars[lidar] = l
+            self.sensor_calibrations[lidar] = Isometry.from_carla_transform(
+                veh_T_sensor
+            )
 
         self.map_bridge = MapBridge(world)
         self.map_bridge.load_lane_polygons()
 
         self.ego_pose = Isometry([0, 0, 0])
 
-    def get_sample(self):
+    def get_sample(self, include_map: bool = True):
         # get images
+        imu = self.sensor_platform.ego_pose.get()
+        self.ego_pose = imu.transform
         for name, lidar in self.lidars.items():
             lidar_data = self.lidar_queues[name].get()
             point_cloud = np.frombuffer(lidar_data.raw_data, dtype=np.float32).reshape(
@@ -166,13 +197,11 @@ class Dataset:
             )
             lidar.load_data(data=point_cloud)
             lidar.transformLidarToVehicle()
-            lidar.exportPCD("lidar_test.pcd")
 
         for name, cam in self.cameras.items():
             if name == "top_view":
                 cam_data = self.camera_queues["top_view"].get()
                 cc = carla.ColorConverter.CityScapesPalette
-                cam_data.save_to_disk("semantic_test.png", cc)
                 np_img = np.frombuffer(
                     cam_data.raw_data, dtype=np.uint8
                 ).copy()  # .copy()
@@ -181,16 +210,10 @@ class Dataset:
                 np_img = np_img[:, :, ::-1]
                 np_img = apply_cityscapes_cm(np_img)
                 top_view_img = np_img
-
-                # FIXME
-                sensor_T_veh = self.cameras[name].extrinsic
-                world_T_sensor = Isometry.from_carla_transform(cam_data.transform)
-                world_T_veh = world_T_sensor @ sensor_T_veh
-                self.ego_pose = world_T_veh
+                self.cameras[name].load_data(data=np_img)
 
             else:
                 cam_data = self.camera_queues[name].get()
-                cam_data.save_to_disk(name + "_test.png")
                 np_img = np.frombuffer(
                     cam_data.raw_data, dtype=np.uint8
                 ).copy()  # .copy()
@@ -200,62 +223,39 @@ class Dataset:
                 self.cameras[name].load_data(data=np_img)
                 # self.cameras[name].drawCalibration()
 
-            # bev = self.cameras["top_view"].transform(data=np_img)
-            # get ego_pose from sensor pose
-            # world_T_sensor -> world_T_veh * veh_T_sensor
-
-        bb, poly = self.map_bridge.get_map_patch(self.roi, self.ego_pose)
-        # transform polygon to image frame
-        veh_T_world = self.ego_pose.inverse()
-        coefficient_list = np.ravel(veh_T_world.matrix[:3, :3]).tolist()
-        coefficient_list += np.ravel(veh_T_world.matrix[:3, 3]).tolist()
-        # road polygons in vehicle pose
-        veh_poly = shapely.affinity.affine_transform(poly, coefficient_list)
-
-        # we need the polygons in image scope of the roi (ie image frame)
-        """
-        img_poly = shapely.affinity.rotate(veh_poly, angle=90, origin=(0, 0))
-        img_poly = shapely.affinity.translate(
-            img_poly, xoff=self.roi[0] / 2, yoff=self.roi[1] / 2
-        )
-        img_poly = shapely.affinity.scale(
-            img_poly,
-            xfact=1 / self.resolution,
-            yfact=1 / self.resolution,
-            origin=(0, 0),
-        )
-
-        """
-        coeffs = [
-            0,
-            -1 / self.resolution,
-            -1 / self.resolution,
-            0,
-            self.roi[1] / (2 * self.resolution),
-            self.roi[0] / (2 * self.resolution),
-        ]
-        img_poly = shapely.affinity.affine_transform(veh_poly, coeffs)
-        if img_poly.geom_type == "MultiPolygon":
-            img_poly = shapely.geometry.MultiPolygon(
-                [
-                    shapely.geometry.Polygon(
-                        [(floor(x), floor(y)) for x, y in geom.exterior.coords]
-                    )
-                    for geom in img_poly
-                ]
+        if include_map:
+            # extract map patch
+            bb, poly = self.map_bridge.get_map_patch(
+                self.roi, np.array(self.ego_pose.get_matrix())
             )
+            # transform polygon to image frame
+            veh_T_world = np.array(self.ego_pose.get_inverse_matrix())
+
+            # convert points to image frame
+            coefficient_list = np.ravel(veh_T_world[:3, :3]).tolist()
+            coefficient_list += np.ravel(veh_T_world[:3, 3]).tolist()
+            # road polygons in vehicle pose
+            veh_poly = shapely.affinity.affine_transform(poly, coefficient_list)
+
+            im_poly = []
+            for x, y in veh_poly.exterior.coords:
+                image_points = self.cameras["cam_front"].transformGroundToImage(
+                    np.array([x, y])
+                )
+                if np.all(image_points >= 0):
+                    im_poly.append(image_points)
+
+            img_poly = shapely.geometry.Polygon(im_poly)
+
+            return {
+                "image": top_view_img,
+                "query_box": bb,
+                "world_poly": poly,
+                "image_poly": img_poly,  # FIXME
+                "vehicle_poly": veh_poly,
+            }
         else:
-            img_poly = shapely.geometry.asPolygon(
-                [(floor(x), floor(y)) for x, y in img_poly.exterior.coords]
-            )
-
-        return {
-            "image": top_view_img,
-            "query_box": bb,
-            "world_poly": poly,
-            "image_poly": img_poly,
-            "vehicle_poly": veh_poly,
-        }
+            return {}
 
     def polylines_from_shapely(self, shapes):
         raise NotImplementedError
@@ -276,30 +276,21 @@ if __name__ == "__main__":
 
     world = client.load_world("Town01")
     settings = world.get_settings()
-    settings.synchronous_mode = False  # True
-    settings.fixed_delta_seconds = 0.05
+    settings.synchronous_mode = True  # True
+    settings.fixed_delta_seconds = 0.5
     world.apply_settings(settings)
 
     dataset = Dataset(world)
 
     spectator = world.get_spectator()
 
-    frames = 1
+    frames = 100
     for frame in range(frames):
 
         world.tick()
 
         sample = dataset.get_sample()
-        spectator.set_transform(
-            carla.Transform(
-                carla.Location(
-                    dataset.ego_pose.translation[0],
-                    -dataset.ego_pose.translation[1],
-                    dataset.ego_pose.translation[2],
-                ),
-                carla.Rotation(pitch=-30),
-            )
-        )
+        spectator.set_transform(dataset.sensor_platform.ego_vehicle.get_transform())
 
         fig, ax = plt.subplots(3, 4)
         (x_min, y_min, x_max, y_max) = dataset.map_bridge.lane_polyons.bounds
@@ -310,19 +301,23 @@ if __name__ == "__main__":
         ax[0][0].imshow(sample["image"])
         ax[0][1].imshow(sample["image"])
         dataset.map_bridge.plot_polys(ax[0][2])
-        plot_polygon(ax[0][1], sample["image_poly"], fc="blue", ec="black", alpha=0.4)
+        # plot_polygon(ax[0][1], sample["image_poly"], fc="blue", ec="black", alpha=0.4)
 
+        print([p for p in sample["query_box"].exterior.coords])
         plot_polygon(ax[0][2], sample["query_box"], fc="blue", ec="blue", alpha=0.5)
         ax[0][2].set_aspect("equal")
-        # (x_min, y_min, x_max, y_max) = vp.bounds
+        (x_min, y_min, x_max, y_max) = sample["vehicle_poly"].bounds
+        """
         x_max = dataset.roi[0] // 2
         x_min = -x_max
         y_max = dataset.roi[1] // 2
         y_min = -y_max
+        """
         margin = 2
         ax[0][3].set_xlim([x_min - margin, x_max + margin])
         ax[0][3].set_ylim([y_min - margin, y_max + margin])
         plot_polygon(ax[0][3], sample["vehicle_poly"])
+        plot_polygon(ax[1][1], sample["image_poly"], alpha=0.5)
         ax[0][3].plot([0], [0], marker="o", markersize=3)
         ax[0][3].set_aspect("equal")
 
