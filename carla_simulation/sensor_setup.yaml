@@ -27,9 +27,9 @@ cameras:
       rotation: 
         roll: 0
         pitch: -12
-        yaw: -45
+        yaw: -60
     intrinsic:
-      fov: 110 
+      fov: 90 
       image_size_x: 1920
       image_size_y: 1080
 
@@ -44,7 +44,7 @@ cameras:
         pitch: -12
         yaw: 0
     intrinsic:
-      fov: 110 
+      fov: 90 
       image_size_x: 1920
       image_size_y: 1080
 
@@ -57,9 +57,9 @@ cameras:
       rotation: 
         roll: 0
         pitch: -12
-        yaw: 45
+        yaw: 60
     intrinsic:
-      fov: 110 
+      fov: 90 
       image_size_x: 1920
       image_size_y: 1080
 
@@ -74,7 +74,7 @@ cameras:
         pitch: 0
         yaw: 180
     intrinsic:
-      fov: 110 
+      fov: 90 
       image_size_x: 1920
       image_size_y: 1080
 
@@ -87,24 +87,24 @@ cameras:
       rotation: 
         roll: 0
         pitch: -12
-        yaw: -135
+        yaw: -120
     intrinsic:
-      fov: 110 
+      fov: 90 
       image_size_x: 1920
       image_size_y: 1080
 
   cam_back_right:
     extrinsic:
       location: 
-        x: -1.5
+        x: -1.0
         y: 0.5
         z: 2
       rotation: 
         roll: 0
         pitch: -12
-        yaw: 135
+        yaw: 120
     intrinsic:
-      fov: 110 
+      fov: 90 
       image_size_x: 1920
       image_size_y: 1080
 

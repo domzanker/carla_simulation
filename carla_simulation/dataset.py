@@ -85,7 +85,7 @@ class Dataset:
         cam, queue, vTs = self.sensor_platform.add_topview(
             "top_view",
             veh_T_sensor=extrinsic,
-            blueprint="sensor.camera.semantic_segmentation",
+            blueprint="sensor.camera.rgb",
             roi=self.roi,
             resolution=self.resolution,
             **intrinsic,
@@ -293,7 +293,6 @@ class Dataset:
 
             for exterior_bounds in im_poly_exterior:
                 polyline = np.array(exterior_bounds, dtype=np.int32)
-                print(polyline.shape)
                 self.boundaries_img = cv2.polylines(
                     self.boundaries_img,
                     polyline[np.newaxis, :, :],
@@ -303,7 +302,6 @@ class Dataset:
                 )
             for interior_bounds in im_poly_interior:
                 polyline = np.array(interior_bounds, dtype=np.int32)
-                print(polyline.shape)
                 self.boundaries_img = cv2.polylines(
                     self.boundaries_img,
                     polyline[np.newaxis, :, :],
