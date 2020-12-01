@@ -33,6 +33,7 @@ from dataset_utilities.transformation import Isometry
 from dataset_utilities.camera import Camera, BirdsEyeView
 
 from scipy.spatial.transform import Rotation
+import yaml
 
 
 def isometry_to_carla(isometry: Isometry):
@@ -181,6 +182,7 @@ class Dataset:
         self.ego_pose = spawn_point
 
         self.road_boundaries = []
+        self.boundaries_img = np.zeros([100, 100, 1], np.uint8)
 
     def get_sample(self, frame_id, include_map: bool = True):
         self.road_boundaries = []
@@ -291,12 +293,14 @@ class Dataset:
                             h_.append(image_points)
 
                         im_poly_interior.append(h_)
-                    poly = shapely.geometry.Polygon(ipe)
+                    # poly = shapely.geometry.Polygon(ipe)
                 im_poly_exterior.append(ipe)
 
+                """
                 p = []
                 for i in im_poly_exterior:
                     p.append(shapely.geometry.Polygon(np.array(i)))
+                """
 
             else:
 
@@ -321,12 +325,16 @@ class Dataset:
                         h_.append(image_points)
                     im_poly_interior.append(h_)
 
+                """
                 img_poly = shapely.geometry.Polygon(
-                    np.array(im_poly_exterior[0], holes=im_poly_interior)
+                    np.array(im_poly_exterior[0]), holes=np.array(im_poly_interior)
                 )
+                """
 
             self.road_boundaries.append(im_poly_exterior)
             self.road_boundaries.append(im_poly_interior)
+            self.road_boundaries = np.asarray(self.road_boundaries)
+
             for exterior_bounds in im_poly_exterior:
                 polyline = np.array(exterior_bounds, dtype=np.int32)
                 print(polyline.shape)
