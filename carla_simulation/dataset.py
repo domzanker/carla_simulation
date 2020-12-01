@@ -50,96 +50,62 @@ def isometry_to_carla(isometry: Isometry):
 
 
 class Dataset:
-    def __init__(self, world, vehicle_spawn_point=0, sensor_tick=5):
+    def __init__(
+        self,
+        world,
+        vehicle_spawn_point=0,
+        sensor_tick=5,
+        roi=[30, 20],
+        resolution=0.04,
+        sensor_setup="sensor_setup.yaml",
+    ):
+
         self.cameras = {}
         self.camera_queues = {}
         self.sensor_calibrations = {}
 
-        self.roi = [30, 20]
-        self.resolution = 0.04
+        self.roi = roi
+        self.resolution = resolution
 
         spawn_points = world.get_map().get_spawn_points()
         spawn_point = spawn_points[vehicle_spawn_point]
         self.sensor_platform = SensorPlatform(world, spawn_point, sensor_tick)
 
-        top_view = {
-            "top_view": {
-                "extrinsic": {
-                    "location": carla.Location(),
-                    "rotation": carla.Rotation(pitch=-90, yaw=0),
-                },
-                "intrinsic": {},
-            }
-        }
+        sensor_config = self.__load_sensor_setup__(sensor_setup)
 
-        extrinsic = carla.Transform(**top_view["top_view"]["extrinsic"])
+        top_view = sensor_config["top_view"]
+
+        location = carla.Location(**top_view["extrinsic"]["location"])
+        rotation = carla.Rotation(**top_view["extrinsic"]["rotation"])
+        extrinsic = carla.Transform(location=location, rotation=rotation)
+        try:
+            intrinsic = top_view["intrinsic"]
+        except KeyError:
+            intrinsic = {}
         cam, queue, vTs = self.sensor_platform.add_topview(
             "top_view",
             veh_T_sensor=extrinsic,
             blueprint="sensor.camera.semantic_segmentation",
             roi=self.roi,
             resolution=self.resolution,
-            **top_view["top_view"]["intrinsic"],
+            **intrinsic,
         )
         self.cameras["top_view"] = cam
         self.camera_queues["top_view"] = queue
-        # self.sensor_calibrations["top_view"] = Isometry.from_carla_transform(vTs)
         self.sensor_calibrations["top_view"] = vTs
 
-        camera_setup = {
-            "cam_front": {
-                "extrinsic": {
-                    "location": carla.Location(x=1.0, y=0.0, z=2),
-                    "rotation": carla.Rotation(roll=0, pitch=0, yaw=0),
-                },
-                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
-            },
-            "cam_front_left": {
-                "extrinsic": {
-                    "location": carla.Location(x=1.5, y=-0.5, z=1.5),
-                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=-45),
-                },
-                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
-            },
-            "cam_front_right": {
-                "extrinsic": {
-                    "location": carla.Location(x=1.5, y=0.5, z=1.5),
-                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=45),
-                },
-                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
-            },
-            "cam_back": {
-                "extrinsic": {
-                    "location": carla.Location(x=-1.0, y=0.0, z=2),
-                    "rotation": carla.Rotation(roll=0, pitch=0, yaw=180),
-                },
-                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
-            },
-            "cam_back_left": {
-                "extrinsic": {
-                    "location": carla.Location(x=-1.5, y=-0.5, z=1.5),
-                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=-135),
-                },
-                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
-            },
-            "cam_back_right": {
-                "extrinsic": {
-                    "location": carla.Location(x=-1.5, y=0.5, z=1.5),
-                    "rotation": carla.Rotation(roll=0, pitch=-12, yaw=135),
-                },
-                "intrinsic": {"fov": 110, "image_size_x": 1920, "image_size_y": 1080},
-            },
-        }
-        # "cam_front_left": {},
-        # "cam_front_right": {},
-        # "cam_back": {},
-        # "cam_back_left": {},
-        # "cam_back_right": {},
-        for cam, configs in camera_setup.items():
+        for cam, configs in sensor_config["cameras"].items():
+
+            location = carla.Location(**configs["extrinsic"]["location"])
+            rotation = carla.Rotation(**configs["extrinsic"]["rotation"])
+            extrinsic = carla.Transform(location=location, rotation=rotation)
+            try:
+                intrinsic = configs["intrinsic"]
+            except KeyError:
+                intrinsic = {}
+
             bev, q_, vTs = self.sensor_platform.add_camera(
-                name=cam,
-                veh_T_sensor=carla.Transform(**configs["extrinsic"]),
-                **configs["intrinsic"],
+                name=cam, veh_T_sensor=extrinsic, **intrinsic
             )
             self.cameras[cam] = bev
             self.camera_queues[cam] = q_
@@ -147,27 +113,17 @@ class Dataset:
 
         self.lidars = {}
         self.lidar_queues = {}
-        lidar_setup = {
-            "lidar_top": {
-                "extrinsic": {
-                    "location": carla.Location(x=0, y=0, z=2),
-                    "rotation": carla.Rotation(roll=0, pitch=0, yaw=0),
-                },
-                "intrinsic": {
-                    "rotation_frequency": 20,  #  / sensor_tick,
-                    "points_per_second": 90000,
-                    "range": 35,
-                    "channels": 32,
-                    "lower_fov": -15,
-                    "upper_fov": 5,
-                    "dropoff_general_rate": 0.30,
-                },
-            }
-        }
-        for lidar, configs in lidar_setup.items():
+        for lidar, configs in sensor_config["lidars"].items():
+            location = carla.Location(**configs["extrinsic"]["location"])
+            rotation = carla.Rotation(**configs["extrinsic"]["rotation"])
+            extrinsic = carla.Transform(location=location, rotation=rotation)
+            try:
+                intrinsic = configs["intrinsic"]
+            except KeyError:
+                intrinsic = {}
             l, q_, veh_T_sensor = self.sensor_platform.add_lidar(
                 name=lidar,
-                veh_T_sensor=carla.Transform(**configs["extrinsic"]),
+                veh_T_sensor=extrinsic,
                 **configs["intrinsic"],
             )
             self.lidar_queues[lidar] = q_
@@ -362,6 +318,11 @@ class Dataset:
 
     def polylines_from_shapely(self, shapes):
         raise NotImplementedError
+
+    def __load_sensor_setup__(self, path):
+        with open(path, "r") as f:
+            configs = yaml.safe_load(f)
+        return configs
 
 
 if __name__ == "__main__":
