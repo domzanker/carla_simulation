@@ -47,11 +47,21 @@ def available_spawn_points(args):
 
 def main(args):
 
-    spawn_points = available_spawn_points(args)
+    client = carla.Client(args.server_addr, args.server_port)
+    client.set_timeout(10.0)  # seconds
 
-    for i, spawn_point in enumerate(spawn_points):
-        args.spawn_point = i
-        write_scene(args)
+    world = client.load_world(args.map)
+    world.set_weather(carla.WeatherParameters.ClearNoon)
+
+    if args.spawn_point >= 0:
+        write_scene(args, client=client, world=world)
+    else:
+        spawn_points = available_spawn_points(args)
+        for i, spawn_point in enumerate(spawn_points):
+            args.spawn_point = i
+            write_scene(args, client=client, world=world)
+            client.reload_world()
+            print("finished map %s / %s" % (i, len(spawn_points)))
 
 
 if __name__ == "__main__":
@@ -61,12 +71,12 @@ if __name__ == "__main__":
     parser.add_argument("--map", type=str, default="Town01")
     parser.add_argument("--server_addr", type=str, default="localhost")
     parser.add_argument("--server_port", type=int, default=2000)
-    parser.add_argument("--base_path", type=str, default="/home/dominic/data/carla")
+    parser.add_argument("--base_path", type=str, default="/tmp/carla")
 
     parser.add_argument("--step_delta", type=float, default=0.05)
     parser.add_argument("--scene_length", type=int, default=90)
 
-    parser.add_argument("--spawn_point", type=int, default=0)
+    parser.add_argument("--spawn_point", type=int, default=-1)
 
     args = parser.parse_args()
     main(args)

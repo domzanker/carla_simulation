@@ -30,18 +30,21 @@ import yaml
 import pickle
 
 
-def write_scene(args):
-    # create a world
-    # first define a client
-    client = carla.Client(args.server_addr, args.server_port)
-    client.set_timeout(10.0)  # seconds
+def write_scene(args, client=None, world=None):
+
+    if client is None:
+        # create a world
+        # first define a client
+        client = carla.Client(args.server_addr, args.server_port)
+        client.set_timeout(10.0)  # seconds
+
+    if world is None:
+        world = client.load_world(town)
+        world.set_weather(carla.WeatherParameters.ClearNoon)
 
     town = args.map
     step_delta = args.step_delta
     duration = args.scene_length
-
-    world = client.load_world(town)
-    world.set_weather(carla.WeatherParameters.ClearNoon)
 
     spectator = world.get_spectator()
 
@@ -79,6 +82,8 @@ def write_scene(args):
     settings.synchronous_mode = True  # True
     settings.fixed_delta_seconds = step_delta
     world.apply_settings(settings)
+
+    [world.tick() for _ in range(5)]
 
     for i in range(ticks_per_scene):
 
