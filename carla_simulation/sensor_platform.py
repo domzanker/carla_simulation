@@ -52,6 +52,20 @@ class SensorPlatform:
         self.ego_pose = Queue()
         self.imu.listen(lambda data: self.ego_pose.put(data))
 
+    def destroy(self):
+        for key, (camera, queue) in self.cameras.items():
+            camera.destroy()
+            self.cameras[key] = None
+        for key, (lidar, queue) in self.lidars.items():
+            lidar.destroy()
+            self.lidars[key] = None
+        self.imu.destroy()
+        self.imu = None
+
+        # self.ego_vehicle.destroy()
+        self.ego_vehicle = None
+        return True
+
     def add_topview(
         self,
         name,

@@ -325,6 +325,12 @@ class Dataset:
             configs = yaml.safe_load(f)
         return configs
 
+    def destroy(self):
+        # destroys all actors in dataset
+        self.sensor_platform.destroy()
+        self.sensor_platform = None
+        return True
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
