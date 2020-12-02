@@ -228,8 +228,12 @@ class Dataset:
 
             im_poly_exterior = []
             im_poly_interior = []
+            veh_poly_exterior = []
+            veh_poly_interior = []
+
             if veh_poly.type == "MultiPolygon":
                 ipe = []
+                vpe = []
                 for geom in veh_poly.geoms:
                     for x, y in geom.exterior.coords:
                         image_points = self.cameras["top_view"].transformGroundToImage(
@@ -238,29 +242,29 @@ class Dataset:
                         # if np.all(image_points >= 0):
                         image_points = np.squeeze(image_points).astype("int").tolist()
                         ipe.append(image_points)
+                        vpe.append((x, y))
 
                     for hole in geom.interiors:
                         h_ = []
+                        vh_ = []
                         for x, y in hole.coords:
                             image_points = self.cameras[
                                 "top_view"
                             ].transformGroundToImage(np.array([x, y]))
                             # if np.all(image_points >= 0):
                             h_.append(image_points)
+                            vh_.append((x, y))
 
                         im_poly_interior.append(h_)
+                        veh_poly_interior.append(vh_)
                     # poly = shapely.geometry.Polygon(ipe)
                 im_poly_exterior.append(ipe)
-
-                """
-                p = []
-                for i in im_poly_exterior:
-                    p.append(shapely.geometry.Polygon(np.array(i)))
-                """
+                veh_poly_exterior.append(vpe)
 
             else:
 
                 ipe = []
+                vpe = []
                 for x, y in veh_poly.exterior.coords:
                     image_points = self.cameras["top_view"].transformGroundToImage(
                         np.array([x, y])
@@ -268,27 +272,26 @@ class Dataset:
                     # if np.all(image_points >= 0):
                     image_points = np.squeeze(image_points).astype("int").tolist()
                     ipe.append(image_points)
+                    vpe.append((x, y))
                 im_poly_exterior.append(ipe)
+                veh_poly_exterior.append(vpe)
 
-                im_poly_interior = []
                 for hole in veh_poly.interiors:
                     h_ = []
+                    vh_ = []
                     for x, y in hole.coords:
                         image_points = self.cameras["top_view"].transformGroundToImage(
                             np.array([x, y])
                         )
                         # if np.all(image_points >= 0):
                         h_.append(image_points)
+                        vh_.append((x, y))
                     im_poly_interior.append(h_)
+                    veh_poly_interior.append(vh_)
 
-                """
-                img_poly = shapely.geometry.Polygon(
-                    np.array(im_poly_exterior[0]), holes=np.array(im_poly_interior)
-                )
-                """
-
-            self.road_boundaries.append(im_poly_exterior)
-            self.road_boundaries.append(im_poly_interior)
+            # create veh_poly
+            self.road_boundaries.append(veh_poly_exterior)
+            self.road_boundaries.append(veh_poly_interior)
             self.road_boundaries = np.asarray(self.road_boundaries)
 
             for exterior_bounds in im_poly_exterior:
