@@ -36,7 +36,7 @@ class SensorPlatform:
             # "vehicle.mercedes-benz.coupe"
             "vehicle.bmw.isetta"
         )
-        self.vehicle.set_attribute("role_name", "ego")
+        self.vehicle.set_attribute("role_name", "hero")
 
         self.ego_vehicle = world.spawn_actor(self.vehicle, spawn_point)
         # self.ego_vehicle.set_autopilot(True)
