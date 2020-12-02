@@ -122,8 +122,8 @@ def write_scene(args, client=None, world=None):
             for name, lidar in dataset.lidars.items():
                 export_dict = {}
                 export_file = lidar.exportPCD(sample_dir)
-                export_dict["data"] = str(
-                    export_file.relative_to(root).with_suffix(".pcd")
+                export_dict["data"] = (
+                    export_file.relative_to(root).with_suffix(".pcd").as_posix()
                 )
                 export_dict["extrinsic"] = lidar.M.tolist()
                 sample_dict["sensors"][lidar.id] = export_dict
@@ -131,7 +131,7 @@ def write_scene(args, client=None, world=None):
             for name, cam in dataset.cameras.items():
                 export_dict = {}
                 export_file = cam.write_data(sample_dir)
-                export_dict["data"] = str(export_file.relative_to(root))
+                export_dict["data"] = export_file.relative_to(root).as_posix()
                 export_dict["extrinsic"] = cam.M.tolist()
                 export_dict["intrinsic"] = cam.K.tolist()
                 sample_dict["sensors"][cam.id] = export_dict
