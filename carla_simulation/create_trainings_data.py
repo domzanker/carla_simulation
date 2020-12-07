@@ -40,6 +40,11 @@ from dataset_utilities.sample_data import SampleData
 
 from scipy.spatial.transform import Rotation
 
+import shapely
+
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
 
 class Scene:
     CAMERAS = [
@@ -264,26 +269,46 @@ def apply_colormap(img, colormap=cv2.COLORMAP_TURBO):
     return img_c
 
 
-def main(args):
+def write_scene(args, scene_indx, scene_path, includes_debug=False):
     root = Path(args.path)
     town_path = root / args.town
+    scene_ind = scene_indx
 
+    scene = Scene(town_path, scene=scene_indx, roi=(20, 20))
+    assert str(scene_path) == str(scene.scene_path)
+
+    for i in range(5, 1000):
+        sample_dir = scene_path / ("sample_%s" % i)
+
+        if i % 60 == 0:
+            scene = Scene(town_path, scene=scene_ind, roi=(20, 20))
+
+        if sample_dir.is_dir():
+            print(str(sample_dir))
+
+            if scene.load_sample(i, town=args.town):
+                scene.render_sample(debug=includes_debug)
+
+    # del scene
+
+
+def main(worker_index=0):
+    global args, number_workers
     # for every scene
-    for scene in range(1000):
-        scene_path = town_path / ("scene_%s" % scene)
-        if scene_path.is_dir():
-            print(str(scene_path))
-            scene = Scene(town_path, scene=scene)
-            assert str(scene_path) == str(scene.scene_path)
-
-            for i in range(1000):
-                sample_dir = scene_path / ("sample_%s" % i)
-
-                if sample_dir.is_dir():
-                    print(str(sample_dir))
-
-                    if scene.load_sample(i, town=args.town):
-                        scene.render_sample()
+    root = Path(args.path)
+    town_path = root / args.town
+    if worker_index == 0:
+        debug = True
+    else:
+        debug = False
+    for scene in range(0, 1000):
+        if scene % number_workers == worker_index:
+            scene_path = town_path / ("scene_%s" % scene)
+            if scene_path.is_dir():
+                print(str(scene_path))
+                write_scene(
+                    args, scene_indx=scene, scene_path=scene_path, includes_debug=debug
+                )
 
 
 if __name__ == "__main__":
@@ -299,5 +324,13 @@ if __name__ == "__main__":
         sensors = yaml.safe_load(f)
         CAMERAS = sensors["cameras"].keys()
     """
+    number_workers = 3
 
-    main(args)
+    if number_workers == 0:
+        number_workers = 1
+        main(0)
+
+    else:
+        # setup threads
+        with ThreadPoolExecutor(max_workers=number_workers) as threads:
+            threads.map(main, range(number_workers))
