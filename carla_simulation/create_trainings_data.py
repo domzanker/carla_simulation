@@ -56,15 +56,25 @@ class Scene:
         "cam_back_right",
     ]
 
-    def __init__(self, root, scene: int):
+    calibrations = {
+        "cam_front": [1.5, 0, 2],
+        "cam_front_left": None,
+        "cam_front_right": None,
+        "cam_back": None,
+        "cam_back_left": None,
+        "cam_back_right": None,
+    }
+
+    def __init__(self, root, scene: int, roi=(15, 10)):
         self.root = root
         self.scene = scene
         self.scene_path = self.root / ("scene_%s" % scene)
+        self.roi = (roi[0] / 2, roi[1] / 2)
 
-        self.compositor = BEVCompositor(resolution=0.04, reach=[15, 10])
+        # self.compositor = BEVCompositor(resolution=0.04, reach=roi)
 
         self.grid_map = GridMap(
-            cell_size=0.04, sensor_range_u=(60, 60, 0), max_height=0.5
+            cell_size=0.04, sensor_range_u=(40, 40, 0), max_height=3.0
         )
 
         self.label_img = None
@@ -76,9 +86,26 @@ class Scene:
             return False
 
         meta_data = self.__load_sensor_information__(sample_path)
+        carla_ego_pose = meta_data["ego_pose"]
+        ego_location = carla.Location(
+            x=carla_ego_pose["location"][0],  # + 1000,
+            y=carla_ego_pose["location"][1],  # + 1000,
+            z=carla_ego_pose["location"][2],
+        )
 
-        with (sample_path / "road_polygon.pkl").open("rb") as f:
-            self.road_boundary = pickle.load(f)
+        ego_rotation = carla.Rotation(
+            roll=carla_ego_pose["rotation"]["roll"],
+            pitch=0,  # carla_ego_pose["rotation"]["pitch"],
+            yaw=carla_ego_pose["rotation"]["yaw"],
+        )
+
+        ego_pose = Isometry.from_carla_transform(
+            carla.Transform(ego_location, ego_rotation)
+        )
+        # ego_pose = Isometry.from_matrix(np.asarray(ego_pose.get_matrix()))
+        self.ego_pose = ego_pose
+
+        self.compositor = BEVCompositor(resolution=0.04, reach=self.roi)
 
         for cam_id in self.CAMERAS:
             camera = meta_data["sensors"][cam_id]
@@ -89,45 +116,96 @@ class Scene:
 
             # swap rotation yaw = -yaw in extrinisic
             matrix = np.array(camera["extrinsic"])
+            """
             rotation = Rotation.from_matrix(matrix[:3, :3])
             r, p, y = rotation.as_euler("xyz")
-            rotation = Rotation.from_euler("xyz", (r, p, -y))
+            rotation = Rotation.from_euler("xyz", (r, -p, -y))
             matrix[:3, :3] = rotation.as_matrix()
+            """
             extrinsic = Isometry.from_matrix(matrix)
 
             cam = BirdsEyeView(id=cam_id, extrinsic=extrinsic, intrinsic=intrinsic)
-            cam.load_data(filepath=self.root.joinpath(file_path))
-            # print("new sample %s" % self.root.joinpath(Path(file_path)))
             self.compositor.addSensor(cam)
+            self.compositor.sensors[cam_id].load_data(
+                filepath=self.root.joinpath(file_path)
+            )
+            self.compositor.sensors[cam_id].data = np.fliplr(
+                self.compositor.sensors[cam_id].data
+            )
+            # print("new sample %s" % self.root.joinpath(Path(file_path)))
 
-        carla_ego_pose = meta_data["ego_pose"]
-        ego_location = carla.Location(*carla_ego_pose["location"])
-        ego_rotation = carla.Rotation(
-            roll=carla_ego_pose["rotation"]["roll"],
-            pitch=carla_ego_pose["rotation"]["roll"],
-            yaw=carla_ego_pose["rotation"]["yaw"],
-        )
-        ego_pose = Isometry.from_carla_transform(
-            carla.Transform(ego_location, ego_rotation)
-        )
-
+        # if given a point cloud, use icp to find a rigid transformation instead of the given ego pose
         veh_T_lidar = Isometry.from_matrix(
             np.array(meta_data["sensors"]["lidar_top"]["extrinsic"])
         )
+        # swap rotation yaw = -yaw in extrinisic
+        matrix = np.array(meta_data["sensors"]["lidar_top"]["extrinsic"])
+        rotation = Rotation.from_matrix(matrix[:3, :3])
+        r, p, y = rotation.as_euler("xyz")
+        rotation = Rotation.from_euler("xyz", (r, p, -y + 180))
+        matrix[:3, :3] = rotation.as_matrix()
+        veh_T_lidar = Isometry.from_matrix(matrix)
+
         lidar = Lidar(id="lidar_top", extrinsic=veh_T_lidar)
         file_path = PureWindowsPath(meta_data["sensors"]["lidar_top"]["data"])
         file_path = Path(file_path.as_posix())
         lidar.load_data(filename=self.root.joinpath(file_path.with_suffix(".pcd")))
+        lidar.data[1, :] = -lidar.data[1, :]
+        lidar.transformLidarToVehicle()
+
         self.grid_map.update_u(
             point_cloud=lidar.data, veh_T_sensor=veh_T_lidar, world_T_veh=ego_pose
         )
 
+        self.road_boundary_reflected = []
+        self.road_boundary = []
+
+        def resolve_invalid_polygons(polygon):
+            bb = []
+            for b in polygon:
+                polyline = shapely.geometry.Polygon(b)
+                polyline = polyline.buffer(0)
+                if polyline.geom_type == "Polygon":
+                    polyline = shapely.geometry.MultiPolygon([polyline])
+
+                for p in polyline.geoms:
+                    c = p.exterior.coords[:]
+                    bb.append(np.asarray(c))
+            return bb
+
+        with (sample_path / "road_polygon.pkl").open("rb") as f:
+            road_boundary = pickle.load(f)
+
+            # fix exterior polygon
+            # convert both boundaries to nparray
+            self.road_boundary.append(resolve_invalid_polygons(road_boundary[0]))
+            # self.road_boundary[0] = np.asarray(self.road_boundary[0])
+            self.road_boundary.append(resolve_invalid_polygons(road_boundary[1]))
+
+            self.road_boundary_reflected.append(self.road_boundary[0])
+            self.road_boundary_reflected.append(self.road_boundary[1])
+
+            for i, c in enumerate(self.road_boundary[0]):
+                self.road_boundary[0][i][:, 1] = -c[:, 1]
+            for i, c in enumerate(self.road_boundary[1]):
+                self.road_boundary[1][i][:, 1] = -c[:, 1]
+            """
+            except IndexError:
+                pass
+            """
+
+        self.compositor.render_label(self.road_boundary_reflected)
+        self.grid_map.boundaries = self.road_boundary[0]
+        self.grid_map.boundaries_interior = self.road_boundary[1]
+
+        """
         self.label_img = cv2.cvtColor(
             cv2.imread(str(sample_path / "road_boundary.png")), cv2.COLOR_BGR2GRAY
         )
 
-        self.label_img = np.fliplr(self.label_img)[1:, 1:, None].astype(np.uint8)
+        self.label_img = np.fliplr(self.label_img)[:, :, None].astype(np.uint8)
         # self.label_img = np.flipud(self.label_img)
+        """
 
         self.sample_file = SampleData(
             scene=self.scene,
@@ -136,25 +214,31 @@ class Scene:
             includes_debug=True,
             prefix=town,
         )
+
         return True
 
-    def render_sample(self):
+    def render_sample(self, debug=False):
         img = self.compositor.composeImage(debug=False)
+        self.label_img = self.compositor.label
 
         # [occupation, intensity, height]
         render = self.grid_map.render(debug=False)
 
         # crop and rotate lidar
-        roi_vertices = self.grid_map.get_roi_vertices(roi=(30, 20))
+        roi_vertices = self.grid_map.get_roi_vertices(roi=self.roi)
+
         # TODO adopt to new api
         grid = get_rot_bounding_box_experimental(
             render,
             roi_vertices,
             (self.compositor.map_height, self.compositor.map_width),
         )
+        # grid = np.flipud(grid)
 
         direction, angle_map = road_boundary_direction_map(self.label_img)
-        inv_map = inverse_distance_map(self.label_img)
+        inv_map = inverse_distance_map(
+            self.label_img, truncation_thld=0.5, map_resolution=0.04
+        )
         end_point = end_point_heat_map(self.label_img)
 
         self.sample_file.add_data(rgb=img, lidar=grid)
@@ -165,80 +249,90 @@ class Scene:
             ground_truth=self.label_img,
         )
 
-        for name, cam in self.compositor.sensors.items():
-            if isinstance(cam, BirdsEyeView):
-                self.sample_file.add_debug_image(
-                    name_tag=("%s" % name),
-                    image=cam.data,
-                )
+        if debug:
+            for name, cam in self.compositor.sensors.items():
+                if isinstance(cam, BirdsEyeView):
+                    self.sample_file.add_debug_image(
+                        name_tag=("%s" % name),
+                        image=cam.data,
+                    )
 
-        # save debug output of grid
-        debug_channels = self.grid_map.render(True)
-        self.sample_file.add_debug_image(
-            name_tag="grid_occupancy", image=debug_channels[:, :, :3]
-        )
-        self.sample_file.add_debug_image(
-            name_tag="grid_intensity", image=debug_channels[:, :, 3:6]
-        )
-        self.sample_file.add_debug_image(
-            name_tag="grid_height", image=debug_channels[:, :, 6:9]
-        )
-        self.sample_file.add_debug_image(name_tag="rgb_bev", image=img)
-        vertices = self.grid_map.get_roi_vertices(roi=(30, 20))
-        height_bev = get_rot_bounding_box_experimental(
-            debug_channels[:, :, 6:9],
-            vertices,
-            (self.compositor.map_height, self.compositor.map_width),
-        )
+            # save debug output of grid
+            debug_channels = self.grid_map.render(True)
+            self.sample_file.add_debug_image(
+                name_tag="grid_occupancy", image=debug_channels[:, :, :3]
+            )
+            self.sample_file.add_debug_image(
+                name_tag="grid_intensity", image=debug_channels[:, :, 3:6]
+            )
+            self.sample_file.add_debug_image(
+                name_tag="grid_height", image=debug_channels[:, :, 6:9]
+            )
+            self.sample_file.add_debug_image(name_tag="rgb_bev", image=img)
+            vertices = self.grid_map.get_roi_vertices(roi=self.roi)
+            height_bev = get_rot_bounding_box_experimental(
+                debug_channels[:, :, 6:9],
+                vertices,
+                (self.compositor.map_height, self.compositor.map_width),
+            )
+            # height_bev = np.flipud(height_bev)
 
-        self.sample_file.add_debug_image(name_tag="height_bev", image=height_bev)
+            self.sample_file.add_debug_image(name_tag="height_bev", image=height_bev)
 
-        # save labels
-        # as the direction map as an angle map for better readability
-        normalized_angle_map = np.multiply(
-            np.divide(angle_map, 2 * math.pi), 255
-        ).astype(np.uint8)
-        normalized_angle_map = cv2.applyColorMap(normalized_angle_map, cv2.COLORMAP_JET)
-        normalized_inverse_distance = np.multiply(
-            np.divide(inv_map, 5),
-            255,
-        ).astype(np.uint8)
+            # save labels
+            # as the direction map as an angle map for better readability
+            normalized_angle_map = np.multiply(
+                np.divide(angle_map, 2 * math.pi), 255
+            ).astype(np.uint8)
+            normalized_angle_map = cv2.applyColorMap(
+                normalized_angle_map, cv2.COLORMAP_JET
+            )
+            normalized_inverse_distance = np.multiply(
+                np.divide(inv_map, 2),
+                255,
+            ).astype(np.uint8)
 
-        normalized_inverse_distance = cv2.applyColorMap(
-            normalized_inverse_distance, cv2.COLORMAP_JET
-        )
+            normalized_inverse_distance = cv2.applyColorMap(
+                normalized_inverse_distance, cv2.COLORMAP_JET
+            )
 
-        self.sample_file.add_debug_image(
-            name_tag="road_boundary_direction_map",
-            image=normalized_angle_map,
-        )
-        normalized_end_points = np.multiply(end_point, 255).astype(np.uint8)
-        normalized_end_points = cv2.applyColorMap(
-            normalized_end_points, cv2.COLORMAP_JET
-        )
-        self.sample_file.add_debug_image(
-            name_tag="end_points",
-            image=normalized_end_points,
-        )
-        self.sample_file.add_debug_image(
-            name_tag="inverse_distance_map",
-            image=normalized_inverse_distance,
-        )
+            self.sample_file.add_debug_image(
+                name_tag="road_boundary_direction_map",
+                image=normalized_angle_map,
+            )
+            normalized_end_points = np.multiply(end_point, 255).astype(np.uint8)
+            normalized_end_points = cv2.applyColorMap(
+                normalized_end_points, cv2.COLORMAP_JET
+            )
+            self.sample_file.add_debug_image(
+                name_tag="end_points",
+                image=normalized_end_points,
+            )
+            self.sample_file.add_debug_image(
+                name_tag="inverse_distance_map",
+                image=normalized_inverse_distance,
+            )
 
+            """
+            if self.sample_file.sample % 10 == 0:
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots(2, 3)
+                img /= 255
+                ax[0][1].imshow(img)
+                ax[0][0].imshow(debug_channels[:, :, :3])
+
+                ax[0][2].set_title("height bev")
+                ax[0][2].imshow(height_bev)
+                ax[1][0].set_title("inverse_distance_map")
+                ax[1][0].imshow(normalized_inverse_distance)
+                ax[1][1].set_title("normalized_angle_map")
+                ax[1][1].imshow(normalized_angle_map)
+                ax[1][2].set_title("normalized_end_points")
+                ax[1][2].imshow(normalized_end_points)
+                plt.show()
+            """
         self.sample_file.write()
-        """
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(2, 3)
-        img /= 255
-        ax[0][0].imshow(img)
-        ax[0][1].imshow(grid[:, :, :3])
-        ax[0][2].imshow(self.compositor.label)
-
-        ax[1][0].imshow(angle_map)
-        ax[1][1].imshow(inv_map)
-        ax[1][2].imshow(end_point)
-        plt.show()
-        """
 
     def __load_sensor_information__(self, sample_path):
         yaml_path = sample_path / "sample.yaml"
