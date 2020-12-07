@@ -61,7 +61,9 @@ def main(args):
             args.spawn_point = i
             write_scene(args, client=client, world=world)
             client.reload_world()
-            print("finished map %s / %s" % (i, len(spawn_points)))
+            print("finished map %s / %s" % (i + 1, len(spawn_points)))
+            if i > args.number_of_scenes:
+                break
 
 
 if __name__ == "__main__":
@@ -77,10 +79,11 @@ if __name__ == "__main__":
     parser.add_argument("--scene_length", type=int, default=90)
 
     parser.add_argument("--spawn_point", type=int, default=-1)
+    parser.add_argument("--number_of_scenes", type=int, default=45)
 
     args = parser.parse_args()
 
-    for town in ["Town03", "Town01", "Town02"]:
+    for town in ["Town01", "Town02", "Town03"]:
         print(town)
         args.map = town
         args.spawn_point = -1
