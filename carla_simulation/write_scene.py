@@ -103,7 +103,7 @@ def write_scene(args, client=None, world=None):
                 continue
 
             spec = dataset.ego_pose
-            spec.location.z = 2
+            spec.location.z += 2
             spectator.set_transform(spec)
 
             sample_dict = {}
@@ -112,7 +112,7 @@ def write_scene(args, client=None, world=None):
             sample_dict["ego_pose"] = {
                 "rotation": {
                     "roll": dataset.ego_pose.rotation.roll,
-                    "pitch": dataset.ego_pose.rotation.roll,
+                    "pitch": dataset.ego_pose.rotation.pitch,
                     "yaw": dataset.ego_pose.rotation.yaw,
                 },
                 "location": [
