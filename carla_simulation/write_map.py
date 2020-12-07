@@ -79,4 +79,10 @@ if __name__ == "__main__":
     parser.add_argument("--spawn_point", type=int, default=-1)
 
     args = parser.parse_args()
-    main(args)
+
+    for town in ["Town03", "Town01", "Town02"]:
+        print(town)
+        args.map = town
+        args.spawn_point = -1
+
+        main(args)
