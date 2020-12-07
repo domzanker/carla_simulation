@@ -65,7 +65,10 @@ def write_scene(args, client=None, world=None):
     ticks_per_sample = ticks_per_second / sample_rate
 
     dataset = Dataset(
-        world, vehicle_spawn_point=spawn_point, sensor_tick=1 / sample_rate
+        world,
+        vehicle_spawn_point=spawn_point,
+        sensor_tick=1 / sample_rate,
+        roi=(50, 50),
     )
 
     # TODO tidy up
