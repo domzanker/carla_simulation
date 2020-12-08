@@ -97,7 +97,7 @@ def write_scene(args, client=None, world=None):
             frame = world.tick()
             this_step = i * step_delta
             t_range.set_description(
-                f"[Scene_{spawn_point}]: {this_step:>5} / {duration} sec"
+                f"[Scene_{spawn_point}]: {this_step:.2f} / {duration} sec"
             )
             # t_range.set_postfix("FRAME: %s" % frame)
             if i % ticks_per_sample == 0:  # and i > 0:
