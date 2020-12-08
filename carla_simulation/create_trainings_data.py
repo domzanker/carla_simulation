@@ -85,7 +85,7 @@ class Scene:
 
         ego_rotation = carla.Rotation(
             roll=carla_ego_pose["rotation"]["roll"],
-            pitch=0,  # carla_ego_pose["rotation"]["pitch"],
+            pitch=carla_ego_pose["rotation"]["pitch"],
             yaw=carla_ego_pose["rotation"]["yaw"],
         )
 
