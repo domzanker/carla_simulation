@@ -28,7 +28,7 @@ if speedups.available:
 from pathlib import Path
 import yaml
 import pickle
-import loggings
+import logging
 
 from tqdm import tqdm, trange
 
