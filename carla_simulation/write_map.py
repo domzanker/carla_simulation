@@ -96,7 +96,6 @@ if __name__ == "__main__":
     import carla
 
     for town in ["Town03", "Town07", "Town10"]:
-        print(town)
         args.map = town
         args.spawn_point = -1
 
