@@ -357,7 +357,6 @@ def write_scene(args, scene_indx, scene_path, includes_debug=False, worker=None)
             scene = Scene(town_path, scene=scene_ind, args=args)
 
         if sample_dir.is_dir():
-
             if scene.load_sample(i, town=args.town):
                 scene.render_sample(debug=includes_debug)
 
@@ -372,12 +371,21 @@ def main(worker_index=0):
     else:
         debug = False
 
+    debug_ratio_counter = 0
+    debug_sample = False
     for scene in range(0, 1000):
+        debug_ratio_counter += 1
+        if debug_ratio_counter % args.debug_ratio == 0 and debug:
+            debug_sample = True
         if scene % number_workers == worker_index:
             scene_path = town_path / ("scene_%s" % scene)
             if scene_path.is_dir():
+
                 write_scene(
-                    args, scene_indx=scene, scene_path=scene_path, includes_debug=debug
+                    args,
+                    scene_indx=scene,
+                    scene_path=scene_path,
+                    includes_debug=debug_sample,
                 )
 
 
@@ -392,6 +400,7 @@ if __name__ == "__main__":
     parser.add_argument("--resolution", type=float, default=0.04)
     parser.add_argument("--inverse_distance_thld", type=float, default=0.5)
     parser.add_argument("--sensor_config", type=str, default="sensor_config.yaml")
+    parser.add_argument("--debug_ratio", type=int, default=1)
     args = parser.parse_args()
 
     try:
