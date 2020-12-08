@@ -2,21 +2,6 @@ import glob
 import os
 import sys
 
-try:
-    sys.path.append(
-        glob.glob(
-            "/home/dominic/carla/PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
-            % (
-                sys.version_info.major,
-                sys.version_info.minor,
-                "win-amd64" if os.name == "nt" else "linux-x86_64",
-            )
-        )[0]
-    )
-except IndexError:
-    pass
-
-import carla
 
 import cv2
 import yaml
@@ -385,6 +370,7 @@ def main(worker_index=0):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", type=str, default="/home/dominic/data/carla")
+    parser.add_argument("--carla_path", type=str, default="/home/dominic/carla")
     parser.add_argument("--town", type=str, default="Town01")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max_samples_per_grid", type=int, default=60)
@@ -393,6 +379,27 @@ if __name__ == "__main__":
     parser.add_argument("--inverse_distance_thld", type=float, default=0.5)
     parser.add_argument("--sensor_config", type=str, default="sensor_config.yaml")
     args = parser.parse_args()
+
+    try:
+        sys.path.append(
+            glob.glob(
+                str(
+                    Path(args.carla_path)
+                    / (
+                        "PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
+                        % (
+                            sys.version_info.major,
+                            sys.version_info.minor,
+                            "win-amd64" if os.name == "nt" else "linux-x86_64",
+                        )
+                    )
+                )
+            )[0]
+        )
+    except IndexError:
+        pass
+
+    import carla
 
     """
     with open(args.sensor_config, "r") as f:
