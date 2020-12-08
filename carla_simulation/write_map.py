@@ -48,7 +48,8 @@ def main(args):
                 if i >= args.number_of_scenes:
                     break
                 pbar.set_description(
-                    "Write Scene: %s / %s" % (i, args.number_of_scenes - 1)
+                    "[%s] write scene: %s / %s"
+                    % (args.map, i, args.number_of_scenes - 1)
                 )
                 pbar.update(i + 1)
                 args.spawn_point = i + 1
