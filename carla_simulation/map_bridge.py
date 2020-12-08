@@ -5,7 +5,7 @@ import sys
 try:
     sys.path.append(
         glob.glob(
-            "/home/dominic/carla/PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
+            "carla/PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
             % (
                 sys.version_info.major,
                 sys.version_info.minor,
