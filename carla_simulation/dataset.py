@@ -294,7 +294,7 @@ class Dataset:
             # create veh_poly
             self.road_boundaries.append(veh_poly_exterior)
             self.road_boundaries.append(veh_poly_interior)
-            self.road_boundaries = np.asarray(self.road_boundaries)
+            self.road_boundaries = np.array(self.road_boundaries)
 
             for exterior_bounds in im_poly_exterior:
                 polyline = np.array(exterior_bounds, dtype=np.int32)
