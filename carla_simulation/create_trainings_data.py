@@ -179,23 +179,10 @@ class Scene:
                 self.road_boundary[0][i][:, 1] = -c[:, 1]
             for i, c in enumerate(self.road_boundary[1]):
                 self.road_boundary[1][i][:, 1] = -c[:, 1]
-            """
-            except IndexError:
-                pass
-            """
 
         self.compositor.render_label(self.road_boundary_reflected)
         self.grid_map.boundaries = self.road_boundary[0]
         self.grid_map.boundaries_interior = self.road_boundary[1]
-
-        """
-        self.label_img = cv2.cvtColor(
-            cv2.imread(str(sample_path / "road_boundary.png")), cv2.COLOR_BGR2GRAY
-        )
-
-        self.label_img = np.fliplr(self.label_img)[:, :, None].astype(np.uint8)
-        # self.label_img = np.flipud(self.label_img)
-        """
 
         self.sample_file = SampleData(
             scene=self.scene,
@@ -374,8 +361,6 @@ def write_scene(args, scene_indx, scene_path, includes_debug=False):
 
             if scene.load_sample(i, town=args.town):
                 scene.render_sample(debug=includes_debug)
-
-    # del scene
 
 
 def main(worker_index=0):
