@@ -34,6 +34,8 @@ from dataset_utilities.camera import Camera, BirdsEyeView
 
 from scipy.spatial.transform import Rotation
 import yaml
+import time
+import logging
 
 
 def isometry_to_carla(isometry: Isometry):
@@ -148,7 +150,7 @@ class Dataset:
             # frame_id = lidar_data.frame
             while lidar_data.frame != frame_id:
                 if self.lidar_queues[name].empty():
-                    print(name + " empty")
+                    logging.warn(name + " empty")
                     return False
                 lidar_data = self.lidar_queues[name].get()
 
@@ -169,7 +171,7 @@ class Dataset:
         imu = self.sensor_platform.ego_pose.get()
         while imu.frame != frame_id:
             if self.sensor_platform.ego_pose.empty():
-                print("imu empty")
+                logging.warn("imu empty")
                 return False
             imu = self.sensor_platform.ego_pose.get()
         self.ego_pose = imu.transform
@@ -178,7 +180,7 @@ class Dataset:
             cam_data = self.camera_queues[name].get()
             while cam_data.frame != frame_id:
                 if self.camera_queues[name].empty():
-                    print(name + " empty")
+                    logging.warn(name + " empty")
                     return False
                 cam_data = self.camera_queues[name].get()
             if name == "top_view":

@@ -23,11 +23,12 @@ from shapely import speedups
 
 if speedups.available:
     speedups.enable()
-    print("Speedups enabled")
+    # print("Speedups enabled")
 
 from pathlib import Path
 import yaml
 import pickle
+import loggings
 
 from tqdm import tqdm, trange
 
@@ -94,8 +95,9 @@ def write_scene(args, client=None, world=None):
         for i in t_range:
 
             frame = world.tick()
+            this_step = i * step_delta
             t_range.set_description(
-                "TIME: %s / %s sec" % (round(i * step_delta, 3), duration)
+                f"[Scene_{spawn_point}]: {this_step:>5} / {duration} sec"
             )
             # t_range.set_postfix("FRAME: %s" % frame)
             if i % ticks_per_sample == 0:  # and i > 0:
@@ -104,7 +106,7 @@ def write_scene(args, client=None, world=None):
                 # generate one sample from every tick
 
                 sample = dataset.get_sample(frame_id=frame - 5, include_map=True)
-                if sample == False:
+                if sample is False:
                     continue
 
                 spec = dataset.ego_pose
