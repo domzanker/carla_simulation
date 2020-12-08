@@ -2,22 +2,6 @@ import glob
 import os
 import sys
 import cv2
-
-try:
-    sys.path.append(
-        glob.glob(
-            "/home/dominic/carla/PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
-            % (
-                sys.version_info.major,
-                sys.version_info.minor,
-                "win-amd64" if os.name == "nt" else "linux-x86_64",
-            )
-        )[0]
-    )
-except IndexError:
-    pass
-
-import carla
 from dataset import Dataset
 from shapely import speedups
 
@@ -80,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument("--server_addr", type=str, default="localhost")
     parser.add_argument("--server_port", type=int, default=2000)
     parser.add_argument("--base_path", type=str, default="/tmp/carla")
+    parser.add_argument("--carla_path", type=str, default="/home/dominic/carla")
 
     parser.add_argument("--step_delta", type=float, default=0.05)
     parser.add_argument("--scene_length", type=int, default=90)
@@ -89,7 +74,28 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    for town in ["Town01", "Town02", "Town03"]:
+    try:
+        sys.path.append(
+            glob.glob(
+                str(
+                    Path(args.carla_path)
+                    / (
+                        "PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
+                        % (
+                            sys.version_info.major,
+                            sys.version_info.minor,
+                            "win-amd64" if os.name == "nt" else "linux-x86_64",
+                        )
+                    )
+                )
+            )[0]
+        )
+    except IndexError:
+        pass
+
+    import carla
+
+    for town in ["Town03", "Town07", "Town10"]:
         print(town)
         args.map = town
         args.spawn_point = -1
