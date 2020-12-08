@@ -348,8 +348,9 @@ def write_scene(args, scene_indx, scene_path, includes_debug=False, worker=None)
         tqdm(
             iterable=samples,
             position=worker,
-            desc=("Scene %s" % scene_ind),
+            desc=("[%s] Scene %s" % (args.town, scene_ind)),
             leave=False,
+            unit="sample",
         )
     ):
         if i % args.max_samples_per_grid == 0:
