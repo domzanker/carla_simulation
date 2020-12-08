@@ -27,6 +27,7 @@ from math import cos, sin, radians
 from descartes.patch import PolygonPatch
 import fiona
 import numpy as np
+import logging
 
 from typing import Union, Tuple
 from dataset_utilities.transformation import Isometry
@@ -47,13 +48,13 @@ def plot_line(ax, ob, color=None):
 def plot_polygon(ax, polygon, fc="green", ec="black", *args, **kwargs):
     if isinstance(polygon, shapely.geometry.Polygon):
         if polygon.is_empty:
-            print("polygon empty")
+            logging.warn("polygon empty")
             return
 
         patch = PolygonPatch(polygon, fc=fc, ec=ec, *args, **kwargs)
         ax.add_patch(patch)
     else:
-        print(polygon)
+        logging.warn(polygon)
 
 
 class WaypointBoundaries:
@@ -127,21 +128,21 @@ class MapBridge:
     def load_lane_polygons(self):
         self.lane_topology = self.map.get_topology()
         polys = []
-        print("")
         for i, waypoint in enumerate(self.lane_topology, 1):
             lane = Lane(
                 seed_point=waypoint[0], discretization_step=self.waypoint_discretization
             )
             self.lanes.append(lane)
             polys.append(lane.polygon)
-            print(
+            """
+            logging.info(
                 "processing lane %s/%s" % (i, len(self.lane_topology)),
                 end="\r",
             )
+            """
 
         self.lane_polyons = shapely.geometry.MultiPolygon(polys)
         self.str_tree = shapely.strtree.STRtree(self.lane_polyons)
-        print()
 
     def get_map_patch(self, box_dims, world_T_veh):
         # get all polygons in a bounding box

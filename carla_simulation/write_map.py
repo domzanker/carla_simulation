@@ -29,6 +29,8 @@ from pathlib import Path
 import yaml
 from write_scene import write_scene
 
+from tqdm import tqdm, trange
+
 
 def available_spawn_points(args):
     # create a world
@@ -57,13 +59,17 @@ def main(args):
         write_scene(args, client=client, world=world)
     else:
         spawn_points = available_spawn_points(args)
-        for i, spawn_point in enumerate(spawn_points):
-            args.spawn_point = i
-            write_scene(args, client=client, world=world)
-            client.reload_world()
-            print("finished map %s / %s" % (i + 1, len(spawn_points)))
-            if i > args.number_of_scenes:
-                break
+        with tqdm(total=args.number_of_scenes) as pbar:
+            for i, spawn_point in tqdm(enumerate(spawn_points)):
+                if i >= args.number_of_scenes:
+                    break
+                pbar.set_description(
+                    "Write Scene: %s / %s" % (i, args.number_of_scenes - 1)
+                )
+                pbar.update(i + 1)
+                args.spawn_point = i + 1
+                write_scene(args, client=client, world=world)
+                client.reload_world()
 
 
 if __name__ == "__main__":

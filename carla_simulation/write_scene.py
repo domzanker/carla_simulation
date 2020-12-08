@@ -29,6 +29,8 @@ from pathlib import Path
 import yaml
 import pickle
 
+from tqdm import tqdm, trange
+
 
 def write_scene(args, client=None, world=None):
 
@@ -88,66 +90,71 @@ def write_scene(args, client=None, world=None):
 
     [world.tick() for _ in range(5)]
 
-    for i in range(ticks_per_scene):
+    with trange(ticks_per_scene, leave=False, smoothing=0) as t_range:
+        for i in t_range:
 
-        frame = world.tick()
-        print("simulation time: frame %s -- %s sec" % (frame, round(i * step_delta, 3)))
-        if i % ticks_per_sample == 0:  # and i > 0:
-            print("sensor tick")
-            sample_dir = scene_dir / ("sample_%s" % step)
-            sample_dir.mkdir(parents=True, exist_ok=True)
-            # generate one sample from every tick
+            frame = world.tick()
+            t_range.set_description(
+                "TIME: %s / %s sec" % (round(i * step_delta, 3), duration)
+            )
+            # t_range.set_postfix("FRAME: %s" % frame)
+            if i % ticks_per_sample == 0:  # and i > 0:
+                sample_dir = scene_dir / ("sample_%s" % step)
+                sample_dir.mkdir(parents=True, exist_ok=True)
+                # generate one sample from every tick
 
-            sample = dataset.get_sample(frame_id=frame - 5, include_map=True)
-            if sample == False:
-                continue
+                sample = dataset.get_sample(frame_id=frame - 5, include_map=True)
+                if sample == False:
+                    continue
 
-            spec = dataset.ego_pose
-            spec.location.z += 2
-            spectator.set_transform(spec)
+                spec = dataset.ego_pose
+                spec.location.z += 2
+                spectator.set_transform(spec)
 
-            sample_dict = {}
-            cv2.imwrite(str(sample_dir / "road_boundary.png"), dataset.boundaries_img)
-
-            sample_dict["ego_pose"] = {
-                "rotation": {
-                    "roll": dataset.ego_pose.rotation.roll,
-                    "pitch": dataset.ego_pose.rotation.pitch,
-                    "yaw": dataset.ego_pose.rotation.yaw,
-                },
-                "location": [
-                    dataset.ego_pose.location.x,
-                    dataset.ego_pose.location.y,
-                    dataset.ego_pose.location.z,
-                ],
-            }
-            sample_dict["sensors"] = {}
-            for name, lidar in dataset.lidars.items():
-                export_dict = {}
-                export_file = lidar.exportPCD(sample_dir)
-                export_dict["data"] = (
-                    export_file.relative_to(root).with_suffix(".pcd").as_posix()
+                sample_dict = {}
+                cv2.imwrite(
+                    str(sample_dir / "road_boundary.png"), dataset.boundaries_img
                 )
-                export_dict["extrinsic"] = lidar.M.tolist()
-                sample_dict["sensors"][lidar.id] = export_dict
 
-            for name, cam in dataset.cameras.items():
-                export_dict = {}
-                export_file = cam.write_data(sample_dir)
-                export_dict["data"] = export_file.relative_to(root).as_posix()
-                export_dict["extrinsic"] = cam.M.tolist()
-                export_dict["intrinsic"] = cam.K.tolist()
-                sample_dict["sensors"][cam.id] = export_dict
+                sample_dict["ego_pose"] = {
+                    "rotation": {
+                        "roll": dataset.ego_pose.rotation.roll,
+                        "pitch": dataset.ego_pose.rotation.pitch,
+                        "yaw": dataset.ego_pose.rotation.yaw,
+                    },
+                    "location": [
+                        dataset.ego_pose.location.x,
+                        dataset.ego_pose.location.y,
+                        dataset.ego_pose.location.z,
+                    ],
+                }
+                sample_dict["sensors"] = {}
+                for name, lidar in dataset.lidars.items():
+                    export_dict = {}
+                    export_file = lidar.exportPCD(sample_dir)
+                    export_dict["data"] = (
+                        export_file.relative_to(root).with_suffix(".pcd").as_posix()
+                    )
+                    export_dict["extrinsic"] = lidar.M.tolist()
+                    sample_dict["sensors"][lidar.id] = export_dict
 
-            boundary_file = sample_dir / "road_polygon.pkl"
-            with boundary_file.open("wb+") as f:
-                pickle.dump(dataset.road_boundaries, f)
+                for name, cam in dataset.cameras.items():
+                    export_dict = {}
+                    export_file = cam.write_data(sample_dir)
+                    export_dict["data"] = export_file.relative_to(root).as_posix()
+                    export_dict["extrinsic"] = cam.M.tolist()
+                    export_dict["intrinsic"] = cam.K.tolist()
+                    sample_dict["sensors"][cam.id] = export_dict
 
-            sample_file = sample_dir / "sample.yaml"
-            with sample_file.open("w+") as f:
-                yaml.safe_dump(sample_dict, f)
-            del sample_dict
-            step += 1
+                boundary_file = sample_dir / "road_polygon.pkl"
+                with boundary_file.open("wb+") as f:
+                    pickle.dump(dataset.road_boundaries, f)
+
+                sample_file = sample_dir / "sample.yaml"
+                with sample_file.open("w+") as f:
+                    yaml.safe_dump(sample_dict, f)
+                del sample_dict
+                step += 1
 
     dataset.destroy()
 
