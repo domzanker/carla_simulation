@@ -56,28 +56,18 @@ class Scene:
         "cam_back_right",
     ]
 
-    calibrations = {
-        "cam_front": [1.5, 0, 2],
-        "cam_front_left": None,
-        "cam_front_right": None,
-        "cam_back": None,
-        "cam_back_left": None,
-        "cam_back_right": None,
-    }
-
-    def __init__(self, root, scene: int, roi=(15, 10)):
+    def __init__(self, root, scene: int, args):
         self.root = root
         self.scene = scene
         self.scene_path = self.root / ("scene_%s" % scene)
-        self.roi = (roi[0] / 2, roi[1] / 2)
+        self.roi = (args.roi[0] / 2, args.roi[1] / 2)
 
         # self.compositor = BEVCompositor(resolution=0.04, reach=roi)
 
-        self.grid_map = GridMap(
-            cell_size=0.04, sensor_range_u=(40, 40, 0), max_height=3.0
-        )
+        self.grid_map = GridMap(cell_size=args.resolution)
 
         self.label_img = None
+        self.args = args
 
     def load_sample(self, sample_idx: int, town=None):
         sample_path = self.scene_path / ("sample_%s" % sample_idx)
@@ -105,7 +95,7 @@ class Scene:
         # ego_pose = Isometry.from_matrix(np.asarray(ego_pose.get_matrix()))
         self.ego_pose = ego_pose
 
-        self.compositor = BEVCompositor(resolution=0.04, reach=self.roi)
+        self.compositor = BEVCompositor(resolution=self.args.resolution, reach=self.roi)
 
         for cam_id in self.CAMERAS:
             camera = meta_data["sensors"][cam_id]
@@ -237,7 +227,9 @@ class Scene:
 
         direction, angle_map = road_boundary_direction_map(self.label_img)
         inv_map = inverse_distance_map(
-            self.label_img, truncation_thld=0.5, map_resolution=0.04
+            self.label_img,
+            truncation_thld=self.args.inverse_distance_thld,
+            map_resolution=self.args.resolution,
         )
         end_point = end_point_heat_map(self.label_img)
 
@@ -288,7 +280,7 @@ class Scene:
                 normalized_angle_map, cv2.COLORMAP_JET
             )
             normalized_inverse_distance = np.multiply(
-                np.divide(inv_map, 2),
+                np.divide(inv_map, self.args.inverse_distance_thld),
                 255,
             ).astype(np.uint8)
 
@@ -368,14 +360,14 @@ def write_scene(args, scene_indx, scene_path, includes_debug=False):
     town_path = root / args.town
     scene_ind = scene_indx
 
-    scene = Scene(town_path, scene=scene_indx, roi=(20, 20))
+    scene = Scene(town_path, scene=scene_indx, args=args)
     assert str(scene_path) == str(scene.scene_path)
 
-    for i in range(5, 1000):
+    for i in range(0, 1000):
         sample_dir = scene_path / ("sample_%s" % i)
 
-        if i % 60 == 0:
-            scene = Scene(town_path, scene=scene_ind, roi=(20, 20))
+        if i % args.max_samples_per_grid == 0:
+            scene = Scene(town_path, scene=scene_ind, args=args)
 
         if sample_dir.is_dir():
             print(str(sample_dir))
@@ -409,7 +401,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", type=str, default="/home/dominic/data/carla")
     parser.add_argument("--town", type=str, default="Town01")
-
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--max_samples_per_grid", type=int, default=60)
+    parser.add_argument("--roi", nargs="+", type=int, default=(20, 20))
+    parser.add_argument("--resolution", type=float, default=0.04)
+    parser.add_argument("--inverse_distance_thld", type=float, default=0.5)
     parser.add_argument("--sensor_config", type=str, default="sensor_config.yaml")
     args = parser.parse_args()
 
@@ -418,7 +414,7 @@ if __name__ == "__main__":
         sensors = yaml.safe_load(f)
         CAMERAS = sensors["cameras"].keys()
     """
-    number_workers = 3
+    number_workers = args.workers
 
     if number_workers == 0:
         number_workers = 1
