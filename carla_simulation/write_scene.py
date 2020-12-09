@@ -158,6 +158,7 @@ def write_scene(args, client=None, world=None):
                 del sample_dict
                 step += 1
 
+    tm = None
     dataset.destroy()
 
 
