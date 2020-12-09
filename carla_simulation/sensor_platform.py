@@ -62,7 +62,7 @@ class SensorPlatform:
         self.imu.destroy()
         self.imu = None
 
-        self.ego_vehicle.destroy()
+        # self.ego_vehicle.destroy()
         self.ego_vehicle = None
         return True
 
