@@ -146,7 +146,10 @@ class Dataset:
         data = query_queue.get()
         frame_ = data.frame
         while frame_ < query_frame:
-            data = query_queue.get()
+            try:
+                data = query_queue.get(timeout=5.0)
+            except Empty:
+                return False
             frame_ = data.frame
         if frame_ == query_frame:
             return data
