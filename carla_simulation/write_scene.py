@@ -67,11 +67,6 @@ def write_scene(args, client=None, world=None):
 
     ticks_per_sample = ticks_per_second / sample_rate
 
-    settings = world.get_settings()
-    settings.synchronous_mode = True  # True
-    settings.fixed_delta_seconds = step_delta
-    world.apply_settings(settings)
-
     dataset = Dataset(
         world,
         vehicle_spawn_point=spawn_point,
@@ -89,6 +84,11 @@ def write_scene(args, client=None, world=None):
     spectator.set_transform(spec)
     step = 0
 
+    settings = world.get_settings()
+    settings.synchronous_mode = True  # True
+    settings.fixed_delta_seconds = step_delta
+    world.apply_settings(settings)
+
     [world.tick() for _ in trange(int(ticks_per_second), leave=False)]
 
     with trange(ticks_per_scene, leave=False, smoothing=0) as t_range:
@@ -104,7 +104,7 @@ def write_scene(args, client=None, world=None):
                 sample_dir = scene_dir / ("sample_%s" % step)
                 sample_dir.mkdir(parents=True, exist_ok=True)
 
-                sample = dataset.get_sample(frame_id=frame - 10, include_map=True)
+                sample = dataset.get_sample(frame_id=frame, include_map=True)
                 if sample is False:
                     continue
 
