@@ -104,7 +104,7 @@ def write_scene(args, client=None, world=None):
                 sample_dir = scene_dir / ("sample_%s" % step)
                 sample_dir.mkdir(parents=True, exist_ok=True)
 
-                sample = dataset.get_sample(frame_id=frame - 5, include_map=True)
+                sample = dataset.get_sample(frame_id=frame - 10, include_map=True)
                 if sample is False:
                     continue
 
