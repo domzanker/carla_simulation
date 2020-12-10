@@ -66,7 +66,11 @@ def write_scene(args, client=None, world=None):
     sample_rate = 2  # [hz]
 
     ticks_per_sample = ticks_per_second / sample_rate
-    world.wait_for_tick(30)
+
+    settings = world.get_settings()
+    settings.synchronous_mode = True  # True
+    settings.fixed_delta_seconds = step_delta
+    world.apply_settings(settings)
 
     dataset = Dataset(
         world,
@@ -84,11 +88,6 @@ def write_scene(args, client=None, world=None):
     spec.location.z = 3
     spectator.set_transform(spec)
     step = 0
-
-    settings = world.get_settings()
-    settings.synchronous_mode = True  # True
-    settings.fixed_delta_seconds = step_delta
-    world.apply_settings(settings)
 
     [world.tick() for _ in range(10)]
 
