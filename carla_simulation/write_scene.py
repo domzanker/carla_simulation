@@ -89,7 +89,7 @@ def write_scene(args, client=None, world=None):
     settings.fixed_delta_seconds = step_delta
     world.apply_settings(settings)
 
-    [world.tick() for _ in range(5)]
+    [world.tick() for _ in range(10)]
 
     with trange(ticks_per_scene, leave=False, smoothing=0) as t_range:
         for i in t_range:
