@@ -65,17 +65,19 @@ def main(args):
                 if i >= args.number_of_scenes:
                     break
                 pbar.set_description(
-                    "[%s] write scene: %s / %s"
-                    % (args.map, i, args.number_of_scenes - 1)
+                    f"[{args.map}] write scene: {i} / {args.number_of_scenes-1}"
                 )
                 pbar.update(i + 1)
                 args.spawn_point = i + 1
                 write_scene(args, client=client, world=world)
-                try:
-                    client.reload_world()
-                except RuntimeError:
-                    world = client.load_world(args.map)
-                    world.set_weather(carla.WeatherParameters.ClearNoon)
+
+                retries = 0
+                while retries < 3:
+                    try:
+                        client.reload_world()
+                        retries = 3
+                    except RuntimeError:
+                        retries += 1
 
 
 if __name__ == "__main__":
