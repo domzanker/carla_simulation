@@ -142,17 +142,26 @@ class Dataset:
         self.road_boundaries = []
         self.boundaries_img = np.zeros([100, 100, 1], np.uint8)
 
+    def _query_queue(self, query_frame, queue):
+        data = queue.get()
+        frame_ = data.frame
+        while frame_ < query_frame:
+            data = queue.get()
+        if frame_ == query_frame:
+            return data
+        else:
+            return False
+
     def get_sample(self, frame_id, include_map: bool = True):
         self.road_boundaries = []
         # get images
         for name, lidar in self.lidars.items():
-            lidar_data = self.lidar_queues[name].get()
-            # frame_id = lidar_data.frame
-            while lidar_data.frame != frame_id:
-                if self.lidar_queues[name].empty():
-                    logging.warn(name + " empty")
-                    return False
-                lidar_data = self.lidar_queues[name].get()
+            lidar_data = self._query_queue(
+                query_frame=frame_id, queue=self.lidar_queues[name]
+            )
+            if lidar_data is False:
+                logging.warn(name + " empty")
+                return False
 
             point_cloud = np.frombuffer(lidar_data.raw_data, dtype=np.float32).reshape(
                 [-1, 4]
@@ -168,41 +177,27 @@ class Dataset:
             lidar.load_data(data=point_cloud)
             lidar.transformLidarToVehicle()
 
-        imu = self.sensor_platform.ego_pose.get()
-        while imu.frame != frame_id:
-            if self.sensor_platform.ego_pose.empty():
-                logging.warn("imu empty")
-                return False
-            imu = self.sensor_platform.ego_pose.get()
+        imu = self._query_queue(
+            query_frame=frame_id, queue=self.sensor_platform.ego_pose
+        )
+        if imu is False:
+            logging.warn("imu empty")
+            return False
         self.ego_pose = imu.transform
 
         for name, cam in self.cameras.items():
-            cam_data = self.camera_queues[name].get()
-            while cam_data.frame != frame_id:
-                if self.camera_queues[name].empty():
-                    logging.warn(name + " empty")
-                    return False
-                cam_data = self.camera_queues[name].get()
-            if name == "top_view":
-                cc = carla.ColorConverter.CityScapesPalette
-                np_img = np.frombuffer(
-                    cam_data.raw_data, dtype=np.uint8
-                ).copy()  # .copy()
-                np_img = np.reshape(np_img, (cam_data.height, cam_data.width, 4))
-                np_img = np_img[:, :, :3]
-                np_img = np_img[:, :, ::-1]
-                np_img = apply_cityscapes_cm(np_img)
-                top_view_img = np_img
-                self.cameras[name].load_data(data=np_img)
+            cam_data = self._query_queue(
+                query_frame=frame_id, queue=self.camera_queues[name]
+            )
+            if cam_data is False:
+                logging.warn(name + " empty")
+                return False
 
-            else:
-                np_img = np.frombuffer(
-                    cam_data.raw_data, dtype=np.uint8
-                ).copy()  # .copy()
-                np_img = np.reshape(np_img, (cam_data.height, cam_data.width, 4))
-                np_img = np_img[:, :, :3]
-                np_img = np_img[:, :, ::-1]
-                self.cameras[name].load_data(data=np_img)
+            np_img = np.frombuffer(cam_data.raw_data, dtype=np.uint8).copy()  # .copy()
+            np_img = np.reshape(np_img, (cam_data.height, cam_data.width, 4))
+            np_img = np_img[:, :, :3]
+            np_img = np_img[:, :, ::-1]
+            self.cameras[name].load_data(data=np_img)
 
         if include_map:
             # extract map patch
