@@ -89,7 +89,7 @@ def write_scene(args, client=None, world=None):
     spectator.set_transform(spec)
     step = 0
 
-    [world.tick() for _ in range(ticks_per_scene)]
+    [world.tick() for _ in trange(ticks_per_second, leave=False)]
 
     with trange(ticks_per_scene, leave=False, smoothing=0) as t_range:
         for i in t_range:
