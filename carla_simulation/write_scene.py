@@ -93,7 +93,7 @@ def write_scene(args, client=None, world=None):
         for i in t_range:
 
             # frame = world.tick()
-            this_step = i * step_delta
+            this_step = i / sample_rate
             t_range.set_description(
                 f"[Scene_{spawn_point}]: {this_step:.2f} / {duration} sec"
             )
