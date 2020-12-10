@@ -60,15 +60,12 @@ def main(args):
         write_scene(args, client=client, world=world)
     else:
         spawn_points = available_spawn_points(args)
-        with tqdm(total=args.number_of_scenes) as pbar:
-            for i, spawn_point in enumerate(spawn_points):
-                if i >= args.number_of_scenes:
-                    break
-                pbar.set_description(
-                    f"[{args.map}] write scene: {i} / {args.number_of_scenes-1}"
+        with trange(args.number_of_scenes) as scenes:
+            for i in scenes:
+                scenes.set_description(
+                    f"[{args.map}] write scene: {i} / {args.number_of_scenes}"
                 )
-                pbar.update(i + 1)
-                args.spawn_point = i + 1
+                args.spawn_point = i
                 write_scene(args, client=client, world=world)
 
                 retries = 0
