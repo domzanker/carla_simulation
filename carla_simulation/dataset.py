@@ -20,7 +20,7 @@ import carla
 from map_bridge import MapBridge
 from sensor_platform import SensorPlatform
 
-from queue import Queue
+from queue import Queue, Empty
 import numpy as np
 import cv2
 import shapely
@@ -142,11 +142,14 @@ class Dataset:
         self.road_boundaries = []
         self.boundaries_img = np.zeros([100, 100, 1], np.uint8)
 
-    def _query_queue(self, query_frame, queue):
-        data = queue.get()
+    def _query_queue(self, query_frame, query_queue):
+        data = query_queue.get()
         frame_ = data.frame
         while frame_ < query_frame:
-            data = queue.get()
+            try:
+                data = query_queue.get(timeout=0.05)
+            except Empty:
+                return False
         if frame_ == query_frame:
             return data
         else:
