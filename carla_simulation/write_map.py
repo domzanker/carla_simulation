@@ -61,7 +61,7 @@ def main(args):
     else:
         spawn_points = available_spawn_points(args)
         with tqdm(total=args.number_of_scenes) as pbar:
-            for i, spawn_point in tqdm(enumerate(spawn_points)):
+            for i, spawn_point in enumerate(spawn_points):
                 if i >= args.number_of_scenes:
                     break
                 pbar.set_description(
