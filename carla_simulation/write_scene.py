@@ -66,6 +66,7 @@ def write_scene(args, client=None, world=None):
     sample_rate = 2  # [hz]
 
     ticks_per_sample = ticks_per_second / sample_rate
+    world.wait_for_tick(30)
 
     dataset = Dataset(
         world,
