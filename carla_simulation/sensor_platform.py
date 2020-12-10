@@ -49,7 +49,7 @@ class SensorPlatform:
         self.imu = self.world.spawn_actor(
             imu_bp, carla.Transform(), attach_to=self.ego_vehicle
         )
-        self.ego_pose = Queue()
+        self.ego_pose = Queue(maxsize=100)
         self.imu.listen(lambda data: self.ego_pose.put(data))
 
     def destroy(self):
@@ -99,7 +99,7 @@ class SensorPlatform:
             blueprint, veh_T_sensor, attach_to=self.ego_vehicle
         )
         sensor.set_location(veh_T_sensor.location)
-        q_ = Queue()
+        q_ = Queue(maxsize=100)
         self.cameras[name] = (sensor, q_)
         # sensor.listen(lambda data: self.reference_callback(data, q_))
         sensor.listen(lambda data: q_.put(data))
@@ -137,7 +137,7 @@ class SensorPlatform:
         )
         sensor.set_location(veh_T_sensor.location)
 
-        q_ = Queue()
+        q_ = Queue(maxsize=100)
         self.cameras[name] = (sensor, q_)
         # sensor.listen(lambda data: self.reference_callback(data, q_))
         sensor.listen(lambda data: q_.put(data))
@@ -170,7 +170,7 @@ class SensorPlatform:
         sensor = self.world.spawn_actor(
             blueprint, veh_T_sensor, attach_to=self.ego_vehicle
         )
-        q_ = Queue()
+        q_ = Queue(maxsize=100)
         self.lidars[name] = (sensor, q_)
         sensor.listen(lambda data: q_.put(data))
         lidar = Lidar(id=name, extrinsic=Isometry.from_carla_transform(veh_T_sensor))
