@@ -155,28 +155,23 @@ class Dataset:
 
     def get_sample(self, frame_id, include_map: bool = True):
         self.road_boundaries = []
-        # get images
-        for name, lidar in self.lidars.items():
-            lidar_data = self._query_queue(
-                query_frame=frame_id, query_queue=self.lidar_queues[name]
-            )
-            if lidar_data is False:
-                logging.warn(name + " empty")
-                return False
 
-            point_cloud = np.frombuffer(lidar_data.raw_data, dtype=np.float32).reshape(
-                [-1, 4]
-            )
-            point_cloud = np.row_stack(
-                [
-                    point_cloud[:, 0],
-                    point_cloud[:, 1],
-                    point_cloud[:, 2],
-                    point_cloud[:, 3],
-                ]
-            )
-            lidar.load_data(data=point_cloud)
-            lidar.transformLidarToVehicle()
+        lidar_data = self.lidar_queues["lidar_top"].get()
+        frame_id = lidar_data.frame
+
+        point_cloud = np.frombuffer(lidar_data.raw_data, dtype=np.float32).reshape(
+            [-1, 4]
+        )
+        point_cloud = np.row_stack(
+            [
+                point_cloud[:, 0],
+                point_cloud[:, 1],
+                point_cloud[:, 2],
+                point_cloud[:, 3],
+            ]
+        )
+        self.lidars["lidar_top"].load_data(data=point_cloud)
+        self.lidars["lidar_top"].transformLidarToVehicle()
 
         imu = self._query_queue(
             query_frame=frame_id, query_queue=self.sensor_platform.ego_pose

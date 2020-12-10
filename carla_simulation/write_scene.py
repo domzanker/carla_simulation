@@ -29,6 +29,7 @@ from pathlib import Path
 import yaml
 import pickle
 import logging
+import time
 
 from tqdm import tqdm, trange
 
@@ -60,12 +61,9 @@ def write_scene(args, client=None, world=None):
     spawn_point = args.spawn_point
     scene_dir = root / ("scene_%s" % spawn_point)
 
-    ticks_per_scene = int(duration // step_delta)
-    ticks_per_second = 1 / step_delta
     # fix sensor rate at 2hz
     sample_rate = 2  # [hz]
-
-    ticks_per_sample = ticks_per_second / sample_rate
+    number_of_samples = args.scene_length * sample_rate
 
     dataset = Dataset(
         world,
@@ -85,77 +83,74 @@ def write_scene(args, client=None, world=None):
     step = 0
 
     settings = world.get_settings()
-    settings.synchronous_mode = True  # True
+    settings.synchronous_mode = False  # True
     settings.fixed_delta_seconds = step_delta
     world.apply_settings(settings)
 
-    [world.tick() for _ in trange(int(ticks_per_second), leave=False)]
+    time.sleep(1.0)
 
-    with trange(ticks_per_scene, leave=False, smoothing=0) as t_range:
+    with trange(number_of_samples, leave=False, smoothing=0) as t_range:
         for i in t_range:
 
-            frame = world.tick()
+            # frame = world.tick()
             this_step = i * step_delta
             t_range.set_description(
                 f"[Scene_{spawn_point}]: {this_step:.2f} / {duration} sec"
             )
             # t_range.set_postfix("FRAME: %s" % frame)
-            if i % ticks_per_sample == 0:  # and i > 0:
-                sample_dir = scene_dir / ("sample_%s" % step)
-                sample_dir.mkdir(parents=True, exist_ok=True)
+            sample_dir = scene_dir / ("sample_%s" % step)
+            sample_dir.mkdir(parents=True, exist_ok=True)
 
-                sample = dataset.get_sample(frame_id=frame, include_map=True)
-                if sample is False:
-                    continue
+            sample = dataset.get_sample(frame_id=0, include_map=True)
+            if sample is False:
+                continue
 
-                spec = dataset.ego_pose
-                spec.location.z += 2
-                spectator.set_transform(spec)
+            spec = dataset.ego_pose
+            spec.location.z += 2
+            spectator.set_transform(spec)
 
-                sample_dict = {}
-                cv2.imwrite(
-                    str(sample_dir / "road_boundary.png"), dataset.boundaries_img
+            sample_dict = {}
+            cv2.imwrite(str(sample_dir / "road_boundary.png"), dataset.boundaries_img)
+
+            sample_dict["ego_pose"] = {
+                "rotation": {
+                    "roll": dataset.ego_pose.rotation.roll,
+                    "pitch": dataset.ego_pose.rotation.pitch,
+                    "yaw": dataset.ego_pose.rotation.yaw,
+                },
+                "location": [
+                    dataset.ego_pose.location.x,
+                    dataset.ego_pose.location.y,
+                    dataset.ego_pose.location.z,
+                ],
+            }
+            sample_dict["sensors"] = {}
+            for name, lidar in dataset.lidars.items():
+                export_dict = {}
+                export_file = lidar.exportPCD(sample_dir)
+                export_dict["data"] = (
+                    export_file.relative_to(root).with_suffix(".pcd").as_posix()
                 )
+                export_dict["extrinsic"] = lidar.M.tolist()
+                sample_dict["sensors"][lidar.id] = export_dict
 
-                sample_dict["ego_pose"] = {
-                    "rotation": {
-                        "roll": dataset.ego_pose.rotation.roll,
-                        "pitch": dataset.ego_pose.rotation.pitch,
-                        "yaw": dataset.ego_pose.rotation.yaw,
-                    },
-                    "location": [
-                        dataset.ego_pose.location.x,
-                        dataset.ego_pose.location.y,
-                        dataset.ego_pose.location.z,
-                    ],
-                }
-                sample_dict["sensors"] = {}
-                for name, lidar in dataset.lidars.items():
-                    export_dict = {}
-                    export_file = lidar.exportPCD(sample_dir)
-                    export_dict["data"] = (
-                        export_file.relative_to(root).with_suffix(".pcd").as_posix()
-                    )
-                    export_dict["extrinsic"] = lidar.M.tolist()
-                    sample_dict["sensors"][lidar.id] = export_dict
+            for name, cam in dataset.cameras.items():
+                export_dict = {}
+                export_file = cam.write_data(sample_dir)
+                export_dict["data"] = export_file.relative_to(root).as_posix()
+                export_dict["extrinsic"] = cam.M.tolist()
+                export_dict["intrinsic"] = cam.K.tolist()
+                sample_dict["sensors"][cam.id] = export_dict
 
-                for name, cam in dataset.cameras.items():
-                    export_dict = {}
-                    export_file = cam.write_data(sample_dir)
-                    export_dict["data"] = export_file.relative_to(root).as_posix()
-                    export_dict["extrinsic"] = cam.M.tolist()
-                    export_dict["intrinsic"] = cam.K.tolist()
-                    sample_dict["sensors"][cam.id] = export_dict
+            boundary_file = sample_dir / "road_polygon.pkl"
+            with boundary_file.open("wb+") as f:
+                pickle.dump(dataset.road_boundaries, f)
 
-                boundary_file = sample_dir / "road_polygon.pkl"
-                with boundary_file.open("wb+") as f:
-                    pickle.dump(dataset.road_boundaries, f)
-
-                sample_file = sample_dir / "sample.yaml"
-                with sample_file.open("w+") as f:
-                    yaml.safe_dump(sample_dict, f)
-                del sample_dict
-                step += 1
+            sample_file = sample_dir / "sample.yaml"
+            with sample_file.open("w+") as f:
+                yaml.safe_dump(sample_dict, f)
+            del sample_dict
+            step += 1
 
     tm = None
     dataset.destroy()

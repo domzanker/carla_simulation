@@ -28,7 +28,7 @@ from pyquaternion import Quaternion
 
 
 class SensorPlatform:
-    def __init__(self, world, spawn_point, sensor_tick=1.0):
+    def __init__(self, world, spawn_point, sensor_tick=0.5):
         self.world = world
         self.sensor_tick = sensor_tick
 
@@ -162,7 +162,9 @@ class SensorPlatform:
         **kwargs,
     ):
         blueprint = self.world.get_blueprint_library().find(blueprint)
-        blueprint.set_attribute("sensor_tick", "0")  # str(self.sensor_tick))
+        blueprint.set_attribute(
+            "sensor_tick", f"{self.sensor_tick}"
+        )  # str(self.sensor_tick))
         for key, val in kwargs.items():
             blueprint.set_attribute(key, str(val))
         sensor = self.world.spawn_actor(
