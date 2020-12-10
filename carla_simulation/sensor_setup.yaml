@@ -11,7 +11,7 @@ lidars:
         yaw: 0
     intrinsic: 
       rotation_frequency: 2 #  / sensor_tick,
-      points_per_second: 120000 # 1600000
+      points_per_second: 150000 # 1600000
       range: 100
       channels: 64
       lower_fov: -15
