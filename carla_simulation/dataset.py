@@ -160,7 +160,7 @@ class Dataset:
         # get images
         for name, lidar in self.lidars.items():
             lidar_data = self._query_queue(
-                query_frame=frame_id, queue=self.lidar_queues[name]
+                query_frame=frame_id, query_queue=self.lidar_queues[name]
             )
             if lidar_data is False:
                 logging.warn(name + " empty")
@@ -181,7 +181,7 @@ class Dataset:
             lidar.transformLidarToVehicle()
 
         imu = self._query_queue(
-            query_frame=frame_id, queue=self.sensor_platform.ego_pose
+            query_frame=frame_id, query_queue=self.sensor_platform.ego_pose
         )
         if imu is False:
             logging.warn("imu empty")
@@ -190,7 +190,7 @@ class Dataset:
 
         for name, cam in self.cameras.items():
             cam_data = self._query_queue(
-                query_frame=frame_id, queue=self.camera_queues[name]
+                query_frame=frame_id, query_queue=self.camera_queues[name]
             )
             if cam_data is False:
                 logging.warn(name + " empty")
