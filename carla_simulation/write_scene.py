@@ -83,13 +83,13 @@ def write_scene(args, client=None, world=None):
     step = 0
 
     settings = world.get_settings()
-    settings.synchronous_mode = False  # True
+    # settings.synchronous_mode = False  # True
     settings.fixed_delta_seconds = step_delta
     world.apply_settings(settings)
 
-    time.sleep(1.0)
+    time.sleep(5.0)
 
-    with trange(number_of_samples, leave=False, smoothing=0) as t_range:
+    with trange(number_of_samples, leave=False, smoothing=0, unit="sample") as t_range:
         for i in t_range:
 
             # frame = world.tick()
