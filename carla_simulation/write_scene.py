@@ -226,7 +226,9 @@ def write(
             write_event.set()
 
     # io_queue.join()
-    io_queue.join()
+    while io_queue.qsize() > 0:
+        pass
+    # io_queue.join()
     io_exec.shutdown()
     end.set()
     client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
