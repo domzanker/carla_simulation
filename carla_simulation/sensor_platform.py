@@ -78,7 +78,7 @@ class SensorPlatform:
         blueprint = self.world.get_blueprint_library().find(blueprint)
         # Set the time in seconds between sensor captures
         # blueprint.set_attribute("sensor_tick", str(self.sensor_tick))
-        blueprint.set_attribute("sensor_tick", "0.05")  # str(self.sensor_tick))
+        blueprint.set_attribute("sensor_tick", "0")  # str(self.sensor_tick))
 
         image_size_x = int(roi[1] // resolution)
         image_size_y = int(roi[0] // resolution)
@@ -122,7 +122,7 @@ class SensorPlatform:
         **kwargs,
     ):
         blueprint = self.world.get_blueprint_library().find(blueprint)
-        blueprint.set_attribute("sensor_tick", "0.05")  # str(self.sensor_tick))
+        blueprint.set_attribute("sensor_tick", "0")  # str(self.sensor_tick))
         # blueprint.set_attribute("sensor_tick", str(self.sensor_tick))
         for key, val in kwargs.items():
             blueprint.set_attribute(key, str(val))
