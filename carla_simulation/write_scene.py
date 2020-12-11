@@ -165,7 +165,7 @@ def write_scene(args, client=None, world=None):
     number_of_ticks = int(number_of_ticks) + 1
 
     write_cntr = 0
-    write_tld = 20  # at least one write every 20 ticks
+    write_tld = 50  # at least one write every 20 ticks
     while not end.is_set():
         # tick world
         # don't tick when there has been a write
