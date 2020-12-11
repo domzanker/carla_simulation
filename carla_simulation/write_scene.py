@@ -235,7 +235,7 @@ def write_scene(args, client=None, world=None):
     settings.fixed_delta_seconds = 0.05
     world.apply_settings(settings)
 
-    #[world.tick() for _ in trange(50, leave=False)]
+    # [world.tick() for _ in trange(50, leave=False)]
 
     # start writing thread
     lock = Lock()
@@ -263,7 +263,7 @@ def write_scene(args, client=None, world=None):
         # don't tick when there has been a write
         if write_event.is_set():
             write_event.clear()
-            write_cntr = 0
+            write_cntr -= 10  # one write is equivalent to 1 / 0.05 / fps
         else:
             write_cntr += 1
 
