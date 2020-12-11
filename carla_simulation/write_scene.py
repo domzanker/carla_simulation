@@ -44,7 +44,7 @@ def write(
 ):
     lock.acquire()
     client = carla.Client(args.server_addr, args.server_port)
-    client.set_timeout(10.0)  # seconds
+    client.set_timeout(20.0)  # seconds
 
     world = client.get_world()
     lock.release()
@@ -133,7 +133,7 @@ def write(
 def write_scene(args, client=None, world=None):
 
     client = carla.Client(args.server_addr, args.server_port)
-    client.set_timeout(10.0)  # seconds
+    client.set_timeout(20.0)  # seconds
 
     world = client.load_world(args.map)
     world.set_weather(carla.WeatherParameters.ClearNoon)
