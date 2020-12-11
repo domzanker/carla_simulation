@@ -40,6 +40,7 @@ def write(
     args,
     lock: Lock,
     end: Event,
+    write: Event,
     inital_step: int = 0,
 ):
     lock.acquire()
@@ -125,6 +126,7 @@ def write(
             with sample_file.open("w+") as f:
                 yaml.safe_dump(sample_dict, f)
             del sample_dict
+            write.set()
 
     end.set()
     client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
@@ -146,11 +148,13 @@ def write_scene(args, client=None, world=None):
     # start writing thread
     lock = Lock()
     end = Event()
+    write = Event()
     p = Process(
         target=write,
         kwargs={
             "args": args,
             "end": end,
+            "write": write,
             "lock": lock,
             "inital_step": 0,
         },
@@ -160,11 +164,23 @@ def write_scene(args, client=None, world=None):
     number_of_ticks = args.scene_length / 0.05
     number_of_ticks = int(number_of_ticks) + 1
 
+    write_cntr = 0
+    write_tld = 20  # at least one write every 20 ticks
     while not end.is_set():
         # tick world
-        lock.acquire()
-        world.tick()
-        lock.release()
+        # don't tick when there has been a write
+        if write.is_set():
+            write.clear()
+            write_cntr = 0
+        else:
+            write_cntr += 1
+
+        if write_cntr < write_tld:
+            lock.acquire()
+            world.tick()
+            lock.release()
+        else:
+            write.wait()
 
     p.join()
 
