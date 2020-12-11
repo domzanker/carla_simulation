@@ -33,7 +33,83 @@ import time
 
 from tqdm import tqdm, trange
 
-from multiprocessing import Lock, Process, Event
+from multiprocessing import Queue, Lock, Process, Event
+from concurrent.futures import ThreadPoolExecutor
+
+
+def to_disk(queue: Queue, close: Event):
+
+    while True:
+        """
+        cameras:
+            cam_name: camera
+            ...
+            ...
+            boundaries_img: image
+        lidars:
+            lidar_name: lidar
+            ...
+        road_boundaries:
+            boundaries: np.ndarray
+            image
+
+        ego_pose: carla.Transform
+
+        sample_dir
+        root
+        """
+        data_dict = queue.get()
+
+        sample_dir = data_dict["sample_dir"]
+        root = data_dict["root"]
+
+        sample_dict = {}
+        ego_pose = data_dict["ego_pose"]
+        sample_dict["ego_pose"] = {
+            "rotation": {
+                "roll": ego_pose.rotation.roll,
+                "pitch": ego_pose.rotation.pitch,
+                "yaw": ego_pose.rotation.yaw,
+            },
+            "location": [
+                ego_pose.location.x,
+                ego_pose.location.y,
+                ego_pose.location.z,
+            ],
+        }
+
+        sample_dict["sensors"] = {}
+        lidars = data_dict["lidars"]
+        for name, lidar in lidars.items():
+            export_dict = {}
+            export_file = lidar.exportPCD(sample_dir)
+            export_dict["data"] = (
+                export_file.relative_to(root).with_suffix(".pcd").as_posix()
+            )
+            export_dict["extrinsic"] = lidar.M.tolist()
+            sample_dict["sensors"][lidar.id] = export_dict
+
+        cameras = data_dict["cameras"]
+        for name, cam in cameras.items():
+            export_dict = {}
+            export_file = cam.write_data(sample_dir)
+            export_dict["data"] = export_file.relative_to(root).as_posix()
+            export_dict["extrinsic"] = cam.M.tolist()
+            export_dict["intrinsic"] = cam.K.tolist()
+            sample_dict["sensors"][cam.id] = export_dict
+
+        road_boundaries = data_dict["road_boundaries"]["boundaries"]
+        road_boundaries_img = data_dict["road_boundaries"]["boundaries_img"]
+
+        boundary_file = sample_dir / "road_polygon.pkl"
+        with boundary_file.open("wb+") as f:
+            pickle.dump(road_boundaries, f)
+        cv2.imwrite(str(sample_dir / "road_boundary.png"), road_boundaries_img)
+
+        sample_file = sample_dir / "sample.yaml"
+        with sample_file.open("w+") as f:
+            yaml.safe_dump(sample_dict, f)
+        del sample_dict
 
 
 def write(
@@ -72,6 +148,10 @@ def write(
         roi=(50, 50),
     )
 
+    io_queue = Queue()
+    io_exec = ThreadPoolExecutor(max_workers=4)
+    [io_exec.submit(to_disk, io_queue) for i in range(4)]
+
     tm = client.get_trafficmanager(8000)
     dataset.sensor_platform.ego_vehicle.set_autopilot(True, 8000)
 
@@ -85,10 +165,34 @@ def write(
                 continue
             t_range.set_description(f"sample_{step} / {number_of_samples}")
 
-            sample_dict = {}
-            cv2.imwrite(str(sample_dir / "road_boundary.png"), dataset.boundaries_img)
+            """
+            cameras:
+                cam_name: camera
+                ...
+                ...
+                boundaries_img: image
+            lidars:
+                lidar_name: lidar
+                ...
+            road_boundaries:
+                boundaries: np.ndarray
+                image
 
-            sample_dict["ego_pose"] = {
+            ego_pose: carla.Transform
+
+            sample_dir
+            root
+            """
+            data_dict = {}
+
+            data_dict["sample_dir"] = sample_dir
+            data_dict["root"] = root
+
+            data_dict["road_boundaries"] = {}
+            data_dict["road_boundaries"]["image"] = dataset.boundaries_img
+            data_dict["road_boundaries"]["boundaries"] = dataset.road_boundaries
+
+            data_dict["ego_pose"] = {
                 "rotation": {
                     "roll": dataset.ego_pose.rotation.roll,
                     "pitch": dataset.ego_pose.rotation.pitch,
@@ -100,34 +204,20 @@ def write(
                     dataset.ego_pose.location.z,
                 ],
             }
-            sample_dict["sensors"] = {}
+            data_dict["lidars"] = {}
             for name, lidar in dataset.lidars.items():
-                export_dict = {}
-                export_file = lidar.exportPCD(sample_dir)
-                export_dict["data"] = (
-                    export_file.relative_to(root).with_suffix(".pcd").as_posix()
-                )
-                export_dict["extrinsic"] = lidar.M.tolist()
-                sample_dict["sensors"][lidar.id] = export_dict
+                data_dict["lidars"][name] = lidar
 
+            data_dict["cameras"] = {}
             for name, cam in dataset.cameras.items():
-                export_dict = {}
-                export_file = cam.write_data(sample_dir)
-                export_dict["data"] = export_file.relative_to(root).as_posix()
-                export_dict["extrinsic"] = cam.M.tolist()
-                export_dict["intrinsic"] = cam.K.tolist()
-                sample_dict["sensors"][cam.id] = export_dict
+                data_dict["cameras"][name] = cam
 
-            boundary_file = sample_dir / "road_polygon.pkl"
-            with boundary_file.open("wb+") as f:
-                pickle.dump(dataset.road_boundaries, f)
+            io_queue.put(data_dict)
 
-            sample_file = sample_dir / "sample.yaml"
-            with sample_file.open("w+") as f:
-                yaml.safe_dump(sample_dict, f)
-            del sample_dict
             write_event.set()
 
+    io_queue.join()
+    io_exec.shutdown()
     end.set()
     client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
 
@@ -144,6 +234,8 @@ def write_scene(args, client=None, world=None):
     settings.synchronous_mode = True
     settings.fixed_delta_seconds = 0.05
     world.apply_settings(settings)
+
+    #[world.tick() for _ in trange(50, leave=False)]
 
     # start writing thread
     lock = Lock()
