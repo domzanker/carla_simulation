@@ -33,11 +33,11 @@ import time
 
 from tqdm import tqdm, trange
 
-from multiprocessing import Queue, Lock, Process, Event
+from multiprocessing import JoinableQueue, Queue, Lock, Process, Event
 from concurrent.futures import ThreadPoolExecutor
 
 
-def to_disk(queue: Queue, close: Event):
+def to_disk(queue: Queue):
 
     while True:
         """
@@ -110,6 +110,7 @@ def to_disk(queue: Queue, close: Event):
         with sample_file.open("w+") as f:
             yaml.safe_dump(sample_dict, f)
         del sample_dict
+        queue.task_done()
 
 
 def write(
@@ -149,7 +150,7 @@ def write(
         roi=(50, 50),
     )
 
-    io_queue = Queue()
+    io_queue = JoinableQueue()
     io_exec = ThreadPoolExecutor(max_workers=4)
     [io_exec.submit(to_disk, io_queue) for i in range(4)]
 
@@ -224,6 +225,7 @@ def write(
 
             write_event.set()
 
+    # io_queue.join()
     io_queue.join()
     io_exec.shutdown()
     end.set()

@@ -59,9 +59,8 @@ def main(args):
     """
 
     if args.spawn_point >= 0:
-        write_scene(args, client=client, world=world)
+        write_scene(args)  # , client=client, world=world)
     else:
-        spawn_points = available_spawn_points(args)
         with trange(args.number_of_scenes) as scenes:
             for i in scenes:
                 scenes.set_description(
