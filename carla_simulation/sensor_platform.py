@@ -45,11 +45,11 @@ class SensorPlatform:
         self.lidars = {}
 
         imu_bp = self.world.get_blueprint_library().find("sensor.other.imu")
-        imu_bp.set_attribute("sensor_tick", "0")  # str(sensor_tick))
+        imu_bp.set_attribute("sensor_tick", "0.0")  # f"{self.sensor_tick}")
         self.imu = self.world.spawn_actor(
             imu_bp, carla.Transform(), attach_to=self.ego_vehicle
         )
-        self.ego_pose = Queue(maxsize=500)
+        self.ego_pose = Queue(maxsize=1000)
         self.imu.listen(lambda data: self.ego_pose.put(data))
 
     def destroy(self):
@@ -78,7 +78,7 @@ class SensorPlatform:
         blueprint = self.world.get_blueprint_library().find(blueprint)
         # Set the time in seconds between sensor captures
         # blueprint.set_attribute("sensor_tick", str(self.sensor_tick))
-        blueprint.set_attribute("sensor_tick", "0")  # str(self.sensor_tick))
+        blueprint.set_attribute("sensor_tick", f"{self.sensor_tick}")
 
         image_size_x = int(roi[1] // resolution)
         image_size_y = int(roi[0] // resolution)
@@ -122,8 +122,9 @@ class SensorPlatform:
         **kwargs,
     ):
         blueprint = self.world.get_blueprint_library().find(blueprint)
-        blueprint.set_attribute("sensor_tick", "0")  # str(self.sensor_tick))
-        # blueprint.set_attribute("sensor_tick", str(self.sensor_tick))
+        blueprint.set_attribute(
+            "sensor_tick", f"{self.sensor_tick}"
+        )  # str(self.sensor_tick))
         for key, val in kwargs.items():
             blueprint.set_attribute(key, str(val))
         # Set the time in seconds between sensor captures

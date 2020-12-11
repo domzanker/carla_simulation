@@ -149,7 +149,8 @@ class Dataset:
         frame_ = data.frame
         while frame_ < query_frame:
             try:
-                data = query_queue.get(timeout=5.0)
+                data = query_queue.get()#timeout=20.0)
+                # print(f"{frame_} _ {query_frame}")
             except:
                 return False
             frame_ = data.frame

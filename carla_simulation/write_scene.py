@@ -117,6 +117,7 @@ def write(
     lock: Lock,
     end: Event,
     write_event: Event,
+    queue_event: Event,
     inital_step: int = 0,
 ):
     lock.acquire()
@@ -159,6 +160,13 @@ def write(
         for step in t_range:
             sample_dir = scene_dir / ("sample_%s" % step)
             sample_dir.mkdir(parents=True, exist_ok=True)
+
+            """
+            if dataset.sensor_platform.ego_pose.qsize() < 100:
+                queue_event.set()
+            else:
+                queue_event.clear()
+            """
 
             sample = dataset.get_sample(frame_id=0, include_map=True)
             if sample is False:
@@ -241,12 +249,15 @@ def write_scene(args, client=None, world=None):
     lock = Lock()
     end = Event()
     write_event = Event()
+
+    queue_has_space = Event()
     p = Process(
         target=write,
         kwargs={
             "args": args,
             "end": end,
             "write_event": write_event,
+            "queue_event": queue_has_space,
             "lock": lock,
             "inital_step": 0,
         },
@@ -258,12 +269,24 @@ def write_scene(args, client=None, world=None):
 
     write_cntr = 0
     write_tld = 50  # at least one write every 20 ticks
+    [world.tick() for _ in range(50)]
+    tick = 0
     while not end.is_set():
         # tick world
         # don't tick when there has been a write
+
+        lock.acquire()
+        world.tick()
+        lock.release()
+        tick += 1
+
+        if tick % 10 == 0:
+            write_event.wait()
+            write_event.clear()
+        """
         if write_event.is_set():
             write_event.clear()
-            write_cntr -= 10  # one write is equivalent to 1 / 0.05 / fps
+            write_cntr -= 15  # one write is equivalent to 1 / 0.05 / fps
         else:
             write_cntr += 1
 
@@ -273,6 +296,7 @@ def write_scene(args, client=None, world=None):
             lock.release()
         else:
             write_event.wait()
+        """
 
     p.join()
 
