@@ -49,7 +49,7 @@ class SensorPlatform:
         self.imu = self.world.spawn_actor(
             imu_bp, carla.Transform(), attach_to=self.ego_vehicle
         )
-        self.ego_pose = Queue(maxsize=500)
+        self.ego_pose = Queue(maxsize=100)
         self.imu.listen(lambda data: self.ego_pose.put(data))
 
     def destroy(self):
@@ -78,7 +78,7 @@ class SensorPlatform:
         blueprint = self.world.get_blueprint_library().find(blueprint)
         # Set the time in seconds between sensor captures
         # blueprint.set_attribute("sensor_tick", str(self.sensor_tick))
-        blueprint.set_attribute("sensor_tick", "0")  # str(self.sensor_tick))
+        blueprint.set_attribute("sensor_tick", "0.05")  # str(self.sensor_tick))
 
         image_size_x = int(roi[1] // resolution)
         image_size_y = int(roi[0] // resolution)
@@ -99,7 +99,7 @@ class SensorPlatform:
             blueprint, veh_T_sensor, attach_to=self.ego_vehicle
         )
         sensor.set_location(veh_T_sensor.location)
-        q_ = Queue(maxsize=500)
+        q_ = Queue(maxsize=100)
         self.cameras[name] = (sensor, q_)
         # sensor.listen(lambda data: self.reference_callback(data, q_))
         sensor.listen(lambda data: q_.put(data))
@@ -122,7 +122,7 @@ class SensorPlatform:
         **kwargs,
     ):
         blueprint = self.world.get_blueprint_library().find(blueprint)
-        blueprint.set_attribute("sensor_tick", "0")  # str(self.sensor_tick))
+        blueprint.set_attribute("sensor_tick", "0.05")  # str(self.sensor_tick))
         # blueprint.set_attribute("sensor_tick", str(self.sensor_tick))
         for key, val in kwargs.items():
             blueprint.set_attribute(key, str(val))
@@ -137,7 +137,7 @@ class SensorPlatform:
         )
         sensor.set_location(veh_T_sensor.location)
 
-        q_ = Queue(maxsize=500)
+        q_ = Queue(maxsize=100)
         self.cameras[name] = (sensor, q_)
         # sensor.listen(lambda data: self.reference_callback(data, q_))
         sensor.listen(lambda data: q_.put(data))

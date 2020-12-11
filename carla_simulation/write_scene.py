@@ -33,28 +33,27 @@ import time
 
 from tqdm import tqdm, trange
 
+from multiprocessing import Lock, Process, Event
 
-def write_scene(args, client=None, world=None):
 
-    if client is None:
-        # create a world
-        # first define a client
-        client = carla.Client(args.server_addr, args.server_port)
-        client.set_timeout(10.0)  # seconds
+def write(
+    args,
+    lock: Lock,
+    end: Event,
+    inital_step: int = 0,
+):
+    lock.acquire()
+    client = carla.Client(args.server_addr, args.server_port)
+    client.set_timeout(10.0)  # seconds
 
-    if world is None:
-        world = client.load_world(town)
-        world.set_weather(carla.WeatherParameters.ClearNoon)
+    world = client.get_world()
+    lock.release()
 
+    step = inital_step
     town = args.map
     step_delta = args.step_delta
-    duration = args.scene_length
 
-    spectator = world.get_spectator()
-
-    # TODO: setup folder structure
     base = Path(args.base_path)
-
     root = base / town
     root.mkdir(parents=True, exist_ok=True)
 
@@ -72,42 +71,18 @@ def write_scene(args, client=None, world=None):
         roi=(50, 50),
     )
 
-    # TODO tidy up
     tm = client.get_trafficmanager(8000)
-    # dataset.sensor_platform.ego_vehicle.set_target_velocity(carla.Vector3D(50, 0, 0))
     dataset.sensor_platform.ego_vehicle.set_autopilot(True, 8000)
 
-    spec = dataset.ego_pose
-    spec.location.z = 3
-    spectator.set_transform(spec)
-    step = 0
-
-    settings = world.get_settings()
-    # settings.synchronous_mode = False  # True
-    settings.fixed_delta_seconds = step_delta
-    world.apply_settings(settings)
-
-    time.sleep(5.0)
-
     with trange(number_of_samples, leave=False, smoothing=0, unit="sample") as t_range:
-        for i in t_range:
-
-            # frame = world.tick()
-            this_step = i / sample_rate
-            t_range.set_description(
-                f"[Scene_{spawn_point}]: {this_step:.2f} / {duration} sec"
-            )
-            # t_range.set_postfix("FRAME: %s" % frame)
+        for step in t_range:
             sample_dir = scene_dir / ("sample_%s" % step)
             sample_dir.mkdir(parents=True, exist_ok=True)
 
             sample = dataset.get_sample(frame_id=0, include_map=True)
             if sample is False:
                 continue
-
-            spec = dataset.ego_pose
-            spec.location.z += 2
-            spectator.set_transform(spec)
+            t_range.set_description(f"sample_{step} / {number_of_samples}")
 
             sample_dict = {}
             cv2.imwrite(str(sample_dir / "road_boundary.png"), dataset.boundaries_img)
@@ -150,10 +125,52 @@ def write_scene(args, client=None, world=None):
             with sample_file.open("w+") as f:
                 yaml.safe_dump(sample_dict, f)
             del sample_dict
-            step += 1
 
-    tm = None
-    dataset.destroy()
+    end.set()
+    client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
+
+
+def write_scene(args, client=None, world=None):
+
+    client = carla.Client(args.server_addr, args.server_port)
+    client.set_timeout(10.0)  # seconds
+
+    world = client.load_world(args.map)
+    world.set_weather(carla.WeatherParameters.ClearNoon)
+
+    settings = world.get_settings()
+    settings.synchronous_mode = True
+    settings.fixed_delta_seconds = 0.05
+    world.apply_settings(settings)
+
+    # start writing thread
+    lock = Lock()
+    end = Event()
+    p = Process(
+        target=write,
+        kwargs={
+            "args": args,
+            "end": end,
+            "lock": lock,
+            "inital_step": 0,
+        },
+    )
+    p.start()
+
+    number_of_ticks = args.scene_length / 0.05
+    number_of_ticks = int(number_of_ticks) + 1
+
+    while not end.is_set():
+        # tick world
+        lock.acquire()
+        world.tick()
+        lock.release()
+
+    p.join()
+
+    # dataset.destroy()
+    client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
+    client = None
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ import carla
 from map_bridge import MapBridge
 from sensor_platform import SensorPlatform
 
-from queue import Queue, Empty
+from multiprocessing.queues import Queue
 import numpy as np
 import cv2
 import shapely
@@ -65,6 +65,8 @@ class Dataset:
         self.cameras = {}
         self.camera_queues = {}
         self.sensor_calibrations = {}
+
+        self.spectator = world.get_spectator()
 
         self.roi = roi
         self.resolution = resolution
@@ -148,7 +150,7 @@ class Dataset:
         while frame_ < query_frame:
             try:
                 data = query_queue.get(timeout=5.0)
-            except Empty:
+            except:
                 return False
             frame_ = data.frame
         if frame_ == query_frame:
@@ -157,6 +159,7 @@ class Dataset:
             return False
 
     def get_sample(self, frame_id, include_map: bool = True):
+        valid_data = True
         self.road_boundaries = []
 
         lidar_data = self.lidar_queues["lidar_top"].get()
@@ -181,8 +184,13 @@ class Dataset:
         )
         if imu is False:
             logging.warn("imu empty")
-            return False
-        self.ego_pose = imu.transform
+            valid_data = False
+        else:
+            self.ego_pose = imu.transform
+
+        spec = self.ego_pose
+        spec.location.z += 2
+        self.spectator.set_transform(spec)
 
         for name, cam in self.cameras.items():
             cam_data = self._query_queue(
@@ -190,13 +198,18 @@ class Dataset:
             )
             if cam_data is False:
                 logging.warn(name + " empty")
-                return False
+                valid_data = False
+            else:
+                np_img = np.frombuffer(
+                    cam_data.raw_data, dtype=np.uint8
+                ).copy()  # .copy()
+                np_img = np.reshape(np_img, (cam_data.height, cam_data.width, 4))
+                np_img = np_img[:, :, :3]
+                np_img = np_img[:, :, ::-1]
+                self.cameras[name].load_data(data=np_img)
 
-            np_img = np.frombuffer(cam_data.raw_data, dtype=np.uint8).copy()  # .copy()
-            np_img = np.reshape(np_img, (cam_data.height, cam_data.width, 4))
-            np_img = np_img[:, :, :3]
-            np_img = np_img[:, :, ::-1]
-            self.cameras[name].load_data(data=np_img)
+        if not valid_data:
+            return False
 
         if include_map:
             # extract map patch
