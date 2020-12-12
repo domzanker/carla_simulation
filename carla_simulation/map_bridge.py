@@ -90,7 +90,7 @@ class Lane(object):
         if len(wbs) < 2:
 
             self.left_segments = shapely.geometry.Point(wbs[0].left)
-            self.left_segments = shapely.geometry.Point(wbs[0].middle)
+            self.middle_segments = shapely.geometry.Point(wbs[0].middle)
             self.right_segments = shapely.geometry.Point(wbs[0].right)
 
             self.polygon = shapely.geometry.Polygon(
