@@ -144,7 +144,7 @@ def write(
 
     io_queue = JoinableQueue()
     io_finished = Event()
-    io_exec = ProcessPoolExecutor(max_workers=4)
+    io_exec = ThreadPoolExecutor(max_workers=4)
     [io_exec.submit(to_disk, io_queue, io_finished) for i in range(4)]
 
     tm = client.get_trafficmanager(8000)
