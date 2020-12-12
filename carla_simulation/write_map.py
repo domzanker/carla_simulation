@@ -50,13 +50,11 @@ def available_spawn_points(args):
 
 def main(args):
 
-    """
     client = carla.Client(args.server_addr, args.server_port)
     client.set_timeout(20.0)  # seconds
 
     world = client.load_world(args.map)
     world.set_weather(carla.WeatherParameters.ClearNoon)
-    """
 
     if args.spawn_point >= 0:
         write_scene(args)  # , client=client, world=world)
@@ -67,7 +65,7 @@ def main(args):
                     f"[{args.map}] write scene: {i} / {args.number_of_scenes}"
                 )
                 args.spawn_point = i
-                write_scene(args)  # , client=client, world=world)
+                write_scene(args, client, world)  # , client=client, world=world)
 
                 """
                 retries = 0

@@ -103,6 +103,7 @@ def to_disk(queue: Queue, deactive: Event):
             yaml.safe_dump(sample_dict, f)
         del sample_dict
         queue.task_done()
+        # break
 
 
 def write(
@@ -234,13 +235,16 @@ def write(
     client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
 
 
-def write_scene(args, client=None, world=None):
+def write_scene(args, client=None, world=None, load_world: bool = True):
 
     client = carla.Client(args.server_addr, args.server_port)
     client.set_timeout(20.0)  # seconds
 
-    world = client.load_world(args.map)
-    world.set_weather(carla.WeatherParameters.ClearNoon)
+    if load_world:
+        world = client.load_world(args.map)
+        world.set_weather(carla.WeatherParameters.ClearNoon)
+    else:
+        world = client.get_world()
 
     settings = world.get_settings()
     settings.synchronous_mode = True
