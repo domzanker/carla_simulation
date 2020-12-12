@@ -31,10 +31,17 @@ import pickle
 import logging
 import time
 
+from dataset_utilities.pcd_parser import PCDParser
+from dataset_utilities.transformation import Isometry
+
 from tqdm import tqdm, trange
 
 from multiprocessing import JoinableQueue, Queue, Lock, Process, Event
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
+import multiprocessing
+
+import numpy as np
 
 
 def to_disk(queue: Queue, deactive: Event):
@@ -63,32 +70,49 @@ def to_disk(queue: Queue, deactive: Event):
         except:
             continue
 
-        sample_dir = data_dict["sample_dir"]
+        pcd_parser = PCDParser()
+
         root = data_dict["root"]
+        sample_dir = data_dict["sample_dir"]
+        print(sample_dir)
+
+        sample_dir.mkdir(exist_ok=True, parents=True)
 
         sample_dict = {}
         ego_pose = data_dict["ego_pose"]
 
         sample_dict["ego_pose"] = ego_pose
         sample_dict["sensors"] = {}
+
         lidars = data_dict["lidars"]
         for name, lidar in lidars.items():
             export_dict = {}
-            export_file = lidar.exportPCD(sample_dir)
-            export_dict["data"] = (
-                export_file.relative_to(root).with_suffix(".pcd").as_posix()
+            pcd_parser.addCalibration(
+                calibration=Isometry.from_carla_transform(
+                    np.asarray(lidar["extrinsic"])
+                )
             )
-            export_dict["extrinsic"] = lidar.M.tolist()
+            pcd_file = sample_dir / name
+            pcd_parser.write(
+                point_cloud=np.swapaxes(lidar["data"], 0, 1),
+                file_name=str(pcd_file),
+            )
+            export_dict["data"] = (
+                pcd_file.relative_to(root).with_suffix(".pcd").as_posix()
+            )
+            export_dict["extrinsic"] = lidar["extrinsic"]
             sample_dict["sensors"][lidar.id] = export_dict
 
         cameras = data_dict["cameras"]
         for name, cam in cameras.items():
             export_dict = {}
-            export_file = cam.write_data(sample_dir)
+            export_file = str(sample_dir / f"{name}.png")
+            cv2.imwrite(export_file, cam["data"])
+            # cv save file
             export_dict["data"] = export_file.relative_to(root).as_posix()
-            export_dict["extrinsic"] = cam.M.tolist()
-            export_dict["intrinsic"] = cam.K.tolist()
-            sample_dict["sensors"][cam.id] = export_dict
+            export_dict["extrinsic"] = cam["extrinsic"]
+            export_dict["intrinsic"] = cam["intrinsic"]
+            sample_dict["sensors"][cam] = export_dict
 
         road_boundaries = data_dict["road_boundaries"]["boundaries"]
         road_boundaries_img = data_dict["road_boundaries"]["image"]
@@ -103,7 +127,6 @@ def to_disk(queue: Queue, deactive: Event):
             yaml.safe_dump(sample_dict, f)
         del sample_dict
         queue.task_done()
-        # break
 
 
 def write(
@@ -114,6 +137,8 @@ def write(
     queue_event: Event,
     inital_step: int = 0,
 ):
+    # logger = multiprocessing.log_to_stderr()
+    # logger.setLevel(logging.DEBUG)
     lock.acquire()
     client = carla.Client(args.server_addr, args.server_port)
     client.set_timeout(20.0)  # seconds
@@ -141,95 +166,17 @@ def write(
         vehicle_spawn_point=spawn_point,
         sensor_tick=1 / sample_rate,
         roi=(50, 50),
+        root=root,
+        scene=spawn_point,
     )
-
-    io_queue = JoinableQueue()
-    io_finished = Event()
-    io_exec = ThreadPoolExecutor(max_workers=4)
-    [io_exec.submit(to_disk, io_queue, io_finished) for i in range(4)]
 
     tm = client.get_trafficmanager(8000)
     dataset.sensor_platform.ego_vehicle.set_autopilot(True, 8000)
 
-    with trange(number_of_samples, leave=False, smoothing=0, unit="sample") as t_range:
-        for step in t_range:
-            sample_dir = scene_dir / ("sample_%s" % step)
-            sample_dir.mkdir(parents=True, exist_ok=True)
+    dataset.process_samples(
+        write_event=write_event, number_of_samples=number_of_samples
+    )
 
-            """
-            if dataset.sensor_platform.ego_pose.qsize() < 100:
-                queue_event.set()
-            else:
-                queue_event.clear()
-            """
-
-            sample = dataset.get_sample(frame_id=0, include_map=True)
-            if sample is False:
-                continue
-            t_range.set_description(f"sample_{step} / {number_of_samples}")
-
-            """
-            cameras:
-                cam_name: camera
-                ...
-                ...
-                boundaries_img: image
-            lidars:
-                lidar_name: lidar
-                ...
-            road_boundaries:
-                boundaries: np.ndarray
-                image
-
-            ego_pose: carla.Transform
-
-            sample_dir
-            root
-            """
-            data_dict = {}
-
-            data_dict["sample_dir"] = sample_dir
-            data_dict["root"] = root
-
-            data_dict["road_boundaries"] = {}
-            data_dict["road_boundaries"]["image"] = dataset.boundaries_img
-            data_dict["road_boundaries"]["boundaries"] = dataset.road_boundaries
-
-            data_dict["ego_pose"] = {
-                "rotation": {
-                    "roll": dataset.ego_pose.rotation.roll,
-                    "pitch": dataset.ego_pose.rotation.pitch,
-                    "yaw": dataset.ego_pose.rotation.yaw,
-                },
-                "location": [
-                    dataset.ego_pose.location.x,
-                    dataset.ego_pose.location.y,
-                    dataset.ego_pose.location.z,
-                ],
-            }
-
-            data_dict["lidars"] = {}
-            for name, lidar in dataset.lidars.items():
-                data_dict["lidars"][name] = lidar
-
-            data_dict["cameras"] = {}
-            for name, cam in dataset.cameras.items():
-                data_dict["cameras"][name] = cam
-
-            io_queue.put(data_dict)
-            # to_disk(io_queue)
-
-            write_event.set()
-
-    # io_queue.join()
-    """
-    while io_queue.qsize() > 0:
-        print(io_queue.qsize())
-        pass
-    """
-    io_queue.join()
-    io_finished.set()
-    io_exec.shutdown()
     end.set()
     write_event.set()
     client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
@@ -306,7 +253,9 @@ def write_scene(args, client=None, world=None, load_world: bool = True):
             write_event.wait()
         """
 
+    print("join write ")
     p.join()
+    print("finished write ")
 
     # dataset.destroy()
     client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
