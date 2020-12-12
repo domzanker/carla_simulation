@@ -37,9 +37,9 @@ from multiprocessing import JoinableQueue, Queue, Lock, Process, Event
 from concurrent.futures import ThreadPoolExecutor
 
 
-def to_disk(queue: Queue):
+def to_disk(queue: Queue, deactive: Event):
 
-    while True:
+    while not deactive.is_set():
         """
         cameras:
             cam_name: camera
@@ -58,26 +58,18 @@ def to_disk(queue: Queue):
         sample_dir
         root
         """
-        data_dict = queue.get()
+        try:
+            data_dict = queue.get(timeout=0.5)
+        except:
+            continue
 
         sample_dir = data_dict["sample_dir"]
         root = data_dict["root"]
 
         sample_dict = {}
         ego_pose = data_dict["ego_pose"]
-        sample_dict["ego_pose"] = {
-            "rotation": {
-                "roll": ego_pose.rotation.roll,
-                "pitch": ego_pose.rotation.pitch,
-                "yaw": ego_pose.rotation.yaw,
-            },
-            "location": [
-                ego_pose.location.x,
-                ego_pose.location.y,
-                ego_pose.location.z,
-            ],
-        }
 
+        sample_dict["ego_pose"] = ego_pose
         sample_dict["sensors"] = {}
         lidars = data_dict["lidars"]
         for name, lidar in lidars.items():
@@ -99,7 +91,7 @@ def to_disk(queue: Queue):
             sample_dict["sensors"][cam.id] = export_dict
 
         road_boundaries = data_dict["road_boundaries"]["boundaries"]
-        road_boundaries_img = data_dict["road_boundaries"]["boundaries_img"]
+        road_boundaries_img = data_dict["road_boundaries"]["image"]
 
         boundary_file = sample_dir / "road_polygon.pkl"
         with boundary_file.open("wb+") as f:
@@ -151,8 +143,9 @@ def write(
     )
 
     io_queue = JoinableQueue()
+    io_finished = Event()
     io_exec = ThreadPoolExecutor(max_workers=4)
-    [io_exec.submit(to_disk, io_queue) for i in range(4)]
+    [io_exec.submit(to_disk, io_queue, io_finished) for i in range(4)]
 
     tm = client.get_trafficmanager(8000)
     dataset.sensor_platform.ego_vehicle.set_autopilot(True, 8000)
@@ -213,6 +206,7 @@ def write(
                     dataset.ego_pose.location.z,
                 ],
             }
+
             data_dict["lidars"] = {}
             for name, lidar in dataset.lidars.items():
                 data_dict["lidars"][name] = lidar
@@ -222,15 +216,21 @@ def write(
                 data_dict["cameras"][name] = cam
 
             io_queue.put(data_dict)
+            # to_disk(io_queue)
 
             write_event.set()
 
     # io_queue.join()
+    """
     while io_queue.qsize() > 0:
+        print(io_queue.qsize())
         pass
-    # io_queue.join()
+    """
+    io_queue.join()
+    io_finished.set()
     io_exec.shutdown()
     end.set()
+    write_event.set()
     client.apply_batch([carla.command.DestroyActor(x) for x in world.get_actors()])
 
 
