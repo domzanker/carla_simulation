@@ -441,7 +441,7 @@ if __name__ == "__main__":
     # logger = mp.log_to_stderr()
     # logger.setLevel(logging.DEBUG)
 
-    for town in ["Town03", "Town07", "Town10"]:
+    for town in ["Town03", "Town10HD", "Town07"]:
         args.map = town
         args.spawn_point = -1
 
