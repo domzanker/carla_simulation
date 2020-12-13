@@ -448,6 +448,11 @@ if __name__ == "__main__":
         client = carla.Client(args.server_addr, args.server_port)
         client.set_timeout(20.0)  # seconds
 
+        cv = client.get_client_version()
+        sv = client.get_server_version()
+        print(cv)
+        print(sv)
+
         world = client.load_world(args.map)
         world.set_weather(carla.WeatherParameters.ClearNoon)
 
