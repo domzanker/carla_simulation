@@ -450,8 +450,8 @@ if __name__ == "__main__":
 
         cv = client.get_client_version()
         sv = client.get_server_version()
-        print(cv)
-        print(sv)
+        print(f"Client version: {cv}")
+        print(f"Server version: {sv}")
 
         world = client.load_world(args.map)
         world.set_weather(carla.WeatherParameters.ClearNoon)
