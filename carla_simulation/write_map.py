@@ -384,10 +384,10 @@ def to_disk(data_dict):  # queue: mp.JoinableQueue, deactive: mp.Event):
 
 
 def main(args):
-    global dataset, spectator
+    global scene_dir, spectator
 
     number_of_samples = args.scene_length * sample_rate
-    max_workers = min(2, number_of_samples)
+    max_workers = min(args.processes, number_of_samples)
     with tqdm(total=number_of_samples, leave=False, smoothing=0, unit="sample") as pbar:
         """
         for i in range(number_of_samples):
@@ -396,7 +396,7 @@ def main(args):
         """
         with concurrent.ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(sample_pipeline, scene_dir=dataset.scene_dir): _
+                executor.submit(sample_pipeline, scene_dir=scene_dir): _
                 for _ in range(number_of_samples)
             }
 
@@ -423,6 +423,7 @@ if __name__ == "__main__":
     parser.add_argument("--map", type=str, default="Town01")
     parser.add_argument("--server_addr", type=str, default="localhost")
     parser.add_argument("--server_port", type=int, default=2000)
+    parser.add_argument("--tm_port", type=int, default=8000)
     parser.add_argument("--base_path", type=str, default="/tmp/carla")
     parser.add_argument("--carla_path", type=str, default="/home/dominic/carla")
 
@@ -431,13 +432,14 @@ if __name__ == "__main__":
 
     parser.add_argument("--spawn_point", type=int, default=-1)
     parser.add_argument("--number_of_scenes", type=int, default=45)
+    parser.add_argument("--processes", type=int, default=2)
 
     args = parser.parse_args()
 
     # logger = mp.log_to_stderr()
     # logger.setLevel(logging.DEBUG)
 
-    for town in ["Town01", "Town07", "Town10", "Town03"]:
+    for town in ["Town03", "Town07", "Town10"]:
         args.map = town
         args.spawn_point = -1
 
@@ -447,7 +449,7 @@ if __name__ == "__main__":
         world = client.load_world(args.map)
         world.set_weather(carla.WeatherParameters.ClearNoon)
 
-        tm = client.get_trafficmanager(6006)
+        tm = client.get_trafficmanager(args.tm_port)
 
         spectator = world.get_spectator()
         town = args.map
@@ -481,10 +483,9 @@ if __name__ == "__main__":
         lock.acquire()
         roi = (50, 50)
         resolution = 0.04
-        print("daaset")
         dataset = Dataset(
             world,
-            vehicle_spawn_point=spawn_point,
+            vehicle_spawn_point=spawn_point + 1,
             sensor_tick=1 / sample_rate,
             roi=roi,
             root=root,
@@ -499,7 +500,7 @@ if __name__ == "__main__":
         tm.set_synchronous_mode(True)
         # print("tm dync started")
 
-        dataset.sensor_platform.ego_vehicle.set_autopilot(True, 6006)
+        # dataset.sensor_platform.ego_vehicle.set_autopilot(True, 6006)
 
         strtree = dataset.map_bridge.str_tree
         sensor_dict = dataset.sensor_dict
@@ -510,58 +511,78 @@ if __name__ == "__main__":
         step = mp.Value("i", 0)
         # define args for process
 
-        # with trange(args.number_of_scenes) as scenes:
-        with trange(1) as scenes:
+        s_dict = dataset.sensor_dict
+        threads_terminate = mp.Event()
+        threads = []
+
+        lidar_q = mp.Queue()
+        # print(lidar_q)
+        # print("start lidar")
+        lidar_t = th.Thread(
+            target=translate_lidar,
+            args=(
+                sensor_dict["lidars"]["lidar_top"]["queue"],
+                lidar_q,
+                threads_terminate,
+            ),
+        )
+        lidar_t.start()
+        threads.append(lidar_t)
+        s_dict["lidars"]["lidar_top"]["queue"] = lidar_q
+        imu_q = mp.Queue()
+        imu_t = th.Thread(
+            target=translate_imu,
+            args=(sensor_dict["imu"]["queue"], imu_q, threads_terminate),
+        )
+        imu_t.start()
+        s_dict["imu"]["queue"] = imu_q
+        threads = [lidar_t, imu_t]
+        for name, cam in sensor_dict["cameras"].items():
+            # print(f"start {name}")
+            cam_q = mp.Queue()
+            cam_t = th.Thread(
+                target=translate_camera,
+                args=(cam["queue"], cam_q, threads_terminate),
+            )
+            cam_t.start()
+            # print(f"started {name}")
+            threads.append(cam_t)
+            s_dict["cameras"][name]["queue"] = cam_q
+
+        # with trange(1) as scenes:
+        spawn_points = world.get_map().get_spawn_points()
+        with trange(args.number_of_scenes) as scenes:
             for i in scenes:
                 scenes.set_description(
                     f"[{args.map}] scene: {i} / {args.number_of_scenes}"
                 )
+
+                # freeze global clock
+                lock.acquire()
                 args.spawn_point = i
+                scene_dir = root / f"scene_{i}"
+
+                with step.get_lock():
+                    step.value = 0
+
+                dataset.sensor_platform.ego_vehicle.set_autopilot(False, args.tm_port)
+                dataset.sensor_platform.teleport(spawn_points[i])
+                dataset.sensor_platform.ego_vehicle.set_autopilot(True, args.tm_port)
+
+                # flush all data queues
+                # since lidar_top is reference it should be enough to flush one queue
+                while not lidar_q.empty():
+                    lidar_q.get(timeout=1.0)
+
+                write_event.set()
+                lock.release()
 
                 # setup sensor translation layer
                 # print("starting threads")
-                s_dict = dataset.sensor_dict
-                threads_terminate = mp.Event()
-                threads = []
-
-                lidar_q = mp.Queue()
-                # print(lidar_q)
-                # print("start lidar")
-                lidar_t = th.Thread(
-                    target=translate_lidar,
-                    args=(
-                        sensor_dict["lidars"]["lidar_top"]["queue"],
-                        lidar_q,
-                        threads_terminate,
-                    ),
-                )
-                lidar_t.start()
-                threads.append(lidar_t)
-                s_dict["lidars"]["lidar_top"]["queue"] = lidar_q
-                imu_q = mp.Queue()
-                imu_t = th.Thread(
-                    target=translate_imu,
-                    args=(sensor_dict["imu"]["queue"], imu_q, threads_terminate),
-                )
-                imu_t.start()
-                s_dict["imu"]["queue"] = imu_q
-                threads = [lidar_t, imu_t]
-                for name, cam in sensor_dict["cameras"].items():
-                    # print(f"start {name}")
-                    cam_q = mp.Queue()
-                    cam_t = th.Thread(
-                        target=translate_camera,
-                        args=(cam["queue"], cam_q, threads_terminate),
-                    )
-                    cam_t.start()
-                    # print(f"started {name}")
-                    threads.append(cam_t)
-                    s_dict["cameras"][name]["queue"] = cam_q
 
                 # print("start imu")
                 # print("end st")
                 main(args)
-
                 # so there is a lot to clean up before starting the next scene
                 # first shutdown the world clock
                 """

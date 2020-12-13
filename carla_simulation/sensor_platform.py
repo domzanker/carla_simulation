@@ -52,14 +52,37 @@ class SensorPlatform:
         self.ego_pose = Queue(maxsize=1000)
         self.imu.listen(lambda data: self.ego_pose.put(data))
 
+    def teleport(self, transform):
+        # self._deactivate_sensor_suite()
+        self.ego_vehicle.set_transform(transform)
+        # self._activate_sensor_suite()
+
+    def _deactivate_sensor_suite(self):
+        # imu
+        self.imu.stop()
+
+        # lidars
+        for key, (sensor, q) in self.lidars.items():
+            sensor.stop()
+
+        # cameras
+        for key, (sensor, q) in self.cameras.items():
+            sensor.stop()
+
+    def _activate_sensor_suite(self):
+        pass
+
     def destroy(self):
         for key, (camera, queue) in self.cameras.items():
+            # queue.join()
             camera.destroy()
             self.cameras[key] = None
         for key, (lidar, queue) in self.lidars.items():
+            # queue.join()
             lidar.destroy()
             self.lidars[key] = None
         self.imu.destroy()
+        # self.ego_pose.join()
         self.imu = None
 
         self.ego_vehicle.destroy()
