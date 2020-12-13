@@ -556,6 +556,30 @@ class Dataset:
         self.sensor_platform = None
         return True
 
+    @property
+    def sensor_dict(self):
+        sensor_dict = {}
+
+        lidar_dict = {}
+        for name, lidar in self.lidars.items():
+            lidar_dict[name] = {}
+            lidar_dict[name] = {}
+            lidar_dict[name]["extrinsic"] = lidar.M.tolist()
+            lidar_dict[name]["queue"] = self.lidar_queues[name]
+        sensor_dict["lidars"] = lidar_dict
+
+        camera_dict = {}
+        for name, camera in self.cameras.items():
+            camera_dict[name] = {}
+            camera_dict[name]["extrinsic"] = camera.M.tolist()
+            camera_dict[name]["intrinsic"] = camera.K.tolist()
+            camera_dict[name]["queue"] = self.camera_queues[name]
+        sensor_dict["cameras"] = camera_dict
+
+        sensor_dict["imu"] = {}
+        sensor_dict["imu"]["queue"] = self.sensor_platform.ego_pose
+        return sensor_dict
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
