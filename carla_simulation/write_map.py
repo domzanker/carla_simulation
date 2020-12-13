@@ -404,7 +404,7 @@ def main(args):
 
             for future in concurrent.as_completed(futures):
                 result = future.result()
-                if not result is False or None:
+                if not result is None:
                     spec = carla.Transform(
                         location=carla.Location(*result["location"]),
                         rotation=carla.Rotation(**result["rotation"]),
