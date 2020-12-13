@@ -210,7 +210,7 @@ def sample_pipeline(
     imu = _query_queue(query_frame=frame_id, query_queue=s_dict["imu"]["queue"])
     # s_dict["imu"]["queue"].task_done()
     if imu is False:
-        logging.warn("imu empty")
+        logging.warning("imu empty")
         valid_data = False
     else:
         ego_pose = carla.Transform(
@@ -228,7 +228,7 @@ def sample_pipeline(
         cam_data = _query_queue(query_frame=frame_id, query_queue=cam_dict["queue"])
         # cam_dict["queue"].task_done()
         if cam_data is False:
-            logging.warn(name + " empty")
+            logging.warning(name + " empty")
             valid_data = False
         else:
             np_img = cam_data["data"]
@@ -404,7 +404,7 @@ def main(args):
 
             for future in concurrent.as_completed(futures):
                 result = future.result()
-                if not result is None:
+                if result is not None:
                     spec = carla.Transform(
                         location=carla.Location(*result["location"]),
                         rotation=carla.Rotation(**result["rotation"]),
