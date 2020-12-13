@@ -54,6 +54,7 @@ def world_clock(
     lock: mp.Lock,
     write_event: mp.Event,
     clock_terminate: mp.Event,
+    global_tick: mp.Value,
 ):
     # global lock, write_event, end
 
@@ -78,7 +79,8 @@ def world_clock(
         # don't tick when there has been a write
 
         lock.acquire()
-        world.tick()
+        with global_tick.get_lock():
+            global_tick.value = world.tick()
         lock.release()
         tick += 1
 
@@ -469,6 +471,7 @@ if __name__ == "__main__":
         write_event = mp.Event()
 
         # initialize clock
+        frame = mp.Value("i", 0)
         clock_proc = th.Thread(
             target=world_clock,
             kwargs={
@@ -476,6 +479,7 @@ if __name__ == "__main__":
                 "server_port": args.server_port,
                 "lock": lock,
                 "write_event": write_event,
+                "global_tick": frame,
                 "clock_terminate": clock_terminate,
             },
         )
@@ -572,10 +576,14 @@ if __name__ == "__main__":
                 # flush all data queues
                 # since lidar_top is reference it should be enough to flush one queue
                 while not lidar_q.empty():
-                    lidar_q.get(timeout=1.0)
+                    d = lidar_q.get(timeout=5.0)
 
                 write_event.set()
                 lock.release()
+
+                # better safe than sorry
+                lidar_q.get()
+                write_event.set()
 
                 # setup sensor translation layer
                 # print("starting threads")
@@ -585,34 +593,3 @@ if __name__ == "__main__":
                 main(args)
                 # so there is a lot to clean up before starting the next scene
                 # first shutdown the world clock
-                """
-                clock_terminate.set()
-                # trigger one write to prevent a deadlock waiting for write
-                write_event.set()
-                clock_proc.join()
-                # clock_proc.close()
-
-                # then we have to destroy all actors in the simulation
-                # first disconnect tehe sensor_platform from TrafficManager by deactivating the auto-pilot
-                dataset.sensor_platform.ego_vehicle.set_autopilot(False, 6006)
-                print("dataset destriy")
-                # dataset will destroy all actors and join the sensor queues
-                dataset.destroy()
-                print("dataset finished")
-                # force garbage collection for dataset
-                del dataset
-                print("attempt gracefill")
-                # client.reload_world()
-                # at last close the sensor translation threads
-                threads_terminate.set()
-                print("join all threads")
-                for t in threads:
-                    print("sigjoin")
-                    t.join()
-                # [t.join() for t in threads]
-                print("joined")
-                # at last there are still the mp.Queues from the sample_pipeline
-                lidar_q.close()
-                print(lidar_q)
-                print("Q closed")
-                """
