@@ -524,7 +524,7 @@ if __name__ == "__main__":
     threads_terminate = mp.Event()
     threads = []
 
-    lidar_q = mp.Queue()
+    lidar_q = mp.Queue(25)
     # print(lidar_q)
     # print("start lidar")
     lidar_t = th.Thread(
@@ -538,7 +538,7 @@ if __name__ == "__main__":
     lidar_t.start()
     threads.append(lidar_t)
     s_dict["lidars"]["lidar_top"]["queue"] = lidar_q
-    imu_q = mp.Queue()
+    imu_q = mp.Queue(50)
     imu_t = th.Thread(
         target=translate_imu,
         args=(sensor_dict["imu"]["queue"], imu_q, threads_terminate),
@@ -547,7 +547,7 @@ if __name__ == "__main__":
     s_dict["imu"]["queue"] = imu_q
     threads = [lidar_t, imu_t]
     for name, cam in sensor_dict["cameras"].items():
-        cam_q = mp.Queue()
+        cam_q = mp.Queue(50)
         cam_t = th.Thread(
             target=translate_camera,
             args=(cam["queue"], cam_q, threads_terminate),
