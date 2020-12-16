@@ -73,7 +73,7 @@ def world_clock(
     lock.release()
 
     # [world.tick() for _ in trange(50, leave=False)]
-    [world.tick() for _ in range(50)]
+    # [world.tick() for _ in range(50)]
     tick = 0
     while not clock_terminate.is_set():
         # tick world
