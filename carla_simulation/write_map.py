@@ -399,8 +399,13 @@ def main(args):
         if args.debug:
             for i in range(number_of_samples):
                 spec = sample_pipeline(scene_dir=scene_dir)
+                if spec is not None:
+                    spec = carla.Transform(
+                        location=carla.Location(*result["location"]),
+                        rotation=carla.Rotation(**result["rotation"]),
+                    )
+                    spectator.set_transform(spec)
                 pbar.update(1)
-                spectator.set_transform(spec)
 
         else:
             with concurrent.ProcessPoolExecutor(max_workers=max_workers) as executor:
