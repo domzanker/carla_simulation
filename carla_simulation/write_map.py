@@ -396,26 +396,33 @@ def main(args):
             sample_pipeline(dataset.scene_dir)
             pbar.update(1)
         """
-        with concurrent.ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(sample_pipeline, scene_dir=scene_dir): _
-                for _ in range(number_of_samples)
-            }
-
-            for future in concurrent.as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    spec = carla.Transform(
-                        location=carla.Location(*result["location"]),
-                        rotation=carla.Rotation(**result["rotation"]),
-                    )
-                    spectator.set_transform(spec)
-
-                if future.exception() is not None:
-                    print(future.exception())
+        if args.debug:
+            for i in range(number_of_samples):
+                spec = sample_pipeline(scene_dir=scene_dir)
                 pbar.update(1)
+                spectator.set_transform(spec)
 
-        mp.active_children()
+        else:
+            with concurrent.ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(sample_pipeline, scene_dir=scene_dir): _
+                    for _ in range(number_of_samples)
+                }
+
+                for future in concurrent.as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        spec = carla.Transform(
+                            location=carla.Location(*result["location"]),
+                            rotation=carla.Rotation(**result["rotation"]),
+                        )
+                        spectator.set_transform(spec)
+
+                    if future.exception() is not None:
+                        print(future.exception())
+                    pbar.update(1)
+
+            mp.active_children()
 
 
 if __name__ == "__main__":
@@ -430,6 +437,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--step_delta", type=float, default=0.05)
     parser.add_argument("--scene_length", type=int, default=90)
+    parser.add_argument("--debug", action="store_true", default=False)
 
     parser.add_argument(
         "--random_sample",
