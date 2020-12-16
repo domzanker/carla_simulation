@@ -401,8 +401,8 @@ def main(args):
                 spec = sample_pipeline(scene_dir=scene_dir)
                 if spec is not None:
                     spec = carla.Transform(
-                        location=carla.Location(*result["location"]),
-                        rotation=carla.Rotation(**result["rotation"]),
+                        location=carla.Location(*spec["location"]),
+                        rotation=carla.Rotation(**spec["rotation"]),
                     )
                     spectator.set_transform(spec)
                 pbar.update(1)
