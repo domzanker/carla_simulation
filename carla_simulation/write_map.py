@@ -81,12 +81,9 @@ def world_clock(
 
         lock.acquire()
         with global_tick.get_lock():
-            try:
-                global_tick.value = world.tick()
-                tick += 1
-            except RuntimeError:
-                pass
+            global_tick.value = world.tick()
         lock.release()
+        tick += 1
 
         if tick % 10 == 0:
             write_event.wait()
