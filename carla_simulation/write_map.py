@@ -81,7 +81,10 @@ def world_clock(
 
         lock.acquire()
         with global_tick.get_lock():
-            global_tick.value = world.tick()
+            try:
+                global_tick.value = world.tick()
+            except RuntimeError:
+                pass
         lock.release()
         tick += 1
 
@@ -266,7 +269,6 @@ def sample_pipeline(
     filtered_polygons = [p.buffer(0.05) for p in filtered_polygons]
     union = shapely.ops.unary_union(filtered_polygons)
     union = union.buffer(-0.05)
-    bb = query_box
     poly = union
 
     # transform polygon to image frame
