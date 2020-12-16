@@ -27,7 +27,7 @@ from scipy.spatial.transform import Rotation
 
 import shapely
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import threading
 
 from tqdm import tqdm, trange
@@ -406,16 +406,11 @@ if __name__ == "__main__":
     try:
         sys.path.append(
             glob.glob(
-                str(
-                    Path(args.carla_path)
-                    / (
-                        "PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
-                        % (
-                            sys.version_info.major,
-                            sys.version_info.minor,
-                            "win-amd64" if os.name == "nt" else "linux-x86_64",
-                        )
-                    )
+                "carla/PythonAPI/carla/dist/carla-*%d.%d-%s.egg"
+                % (
+                    sys.version_info.major,
+                    sys.version_info.minor,
+                    "win-amd64" if os.name == "nt" else "linux-x86_64",
                 )
             )[0]
         )
@@ -437,5 +432,5 @@ if __name__ == "__main__":
 
     else:
         # setup threads
-        with ThreadPoolExecutor(max_workers=number_workers) as threads:
+        with ProcessPoolExecutor(max_workers=number_workers) as threads:
             threads.map(main, range(number_workers))
