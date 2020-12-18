@@ -74,20 +74,19 @@ def world_clock(
 
     # [world.tick() for _ in trange(50, leave=False)]
     # [world.tick() for _ in range(50)]
-    tick = 0
     while not clock_terminate.is_set():
         # tick world
         # don't tick when there has been a write
 
-        lock.acquire()
-        with global_tick.get_lock():
-            global_tick.value = world.tick()
-        lock.release()
-        tick += 1
+        # if write_event trigger next
+        write_event.wait()
 
-        if tick % 10 == 0:
-            write_event.wait()
-            write_event.clear()
+        write_event.clear()
+        for _ in range(10):
+            lock.acquire()
+            with global_tick.get_lock():
+                global_tick.value = world.tick()
+            lock.release()
 
 
 def translate_imu(in_queue, out_queues, terminate: mp.Event):
@@ -586,26 +585,28 @@ if __name__ == "__main__":
 
             # freeze global clock
             lock.acquire()
-            args.spawn_point = i
-            scene_dir = root / f"scene_{i}"
+            args.spawn_point = scene_idx
+            scene_dir = root / f"scene_{scene_idx}"
 
             with step.get_lock():
                 step.value = 0
 
             dataset.sensor_platform.ego_vehicle.set_autopilot(False, args.tm_port)
-            dataset.sensor_platform.teleport(spawn_points[i])
+            dataset.sensor_platform.teleport(spawn_points[scene_idx])
             dataset.sensor_platform.ego_vehicle.set_autopilot(True, args.tm_port)
 
             # flush all data queues
             # since lidar_top is reference it should be enough to flush one queue
             while not lidar_q.empty():
-                d = lidar_q.get(timeout=5.0)
+                d = lidar_q.get()
 
             write_event.set()
             lock.release()
 
             # better safe than sorry
+            """
             lidar_q.get()
             write_event.set()
+            """
 
             main(args)
