@@ -47,7 +47,7 @@ class Scene:
         self.root = root
         self.scene = scene
         self.scene_path = self.root / ("scene_%s" % scene)
-        self.roi = (args.roi[0] / 2, args.roi[1] / 2)
+        self.roi = (args.roi[0], args.roi[1])
 
         # self.compositor = BEVCompositor(resolution=0.04, reach=roi)
 
