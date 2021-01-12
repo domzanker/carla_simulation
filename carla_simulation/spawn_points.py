@@ -28,9 +28,11 @@ from map_bridge import MapBridge
 from shapely import speedups
 import numpy as np
 
+"""
 if speedups.available:
     speedups.enable()
     print("Speedups enabled")
+"""
 
 from pathlib import Path
 
@@ -55,9 +57,18 @@ map.plot_polys(ax)
 sp = world.get_map().get_spawn_points()
 xy = np.asarray([[t.location.x, t.location.y] for t in sp])
 
+limits = map.lane_polyons.bounds
+plt.xlim(limits[0], limits[2])
+plt.ylim(limits[1], limits[3])
+plt.axis("off")
+
+"""
 colors = np.arange(0, len(sp), dtype=np.float32)
-sc = ax.scatter(xy[:, 0], xy[:, 1], c=colors, cmap=plt.get_cmap("plasma"), zorder=100)
-plt.colorbar(sc)
+sc = ax.scatter(
+    xy[:, 0], xy[:, 1], c=colors, cmap=plt.get_cmap("plasma")
+)  # , zorder=100)
+# plt.colorbar(sc)
+"""
 
 if args.save is not None:
     path = Path(args.save) / f"{args.map}_spawn_points.png"

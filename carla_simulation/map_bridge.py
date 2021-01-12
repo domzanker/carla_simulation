@@ -100,9 +100,14 @@ class Lane(object):
             l, m, r = [], [], []
 
             for w in wbs:
+
                 l.append(w.left)
                 m.append((w.middle))
                 r.append(w.right)
+
+                p_l = w.left
+                p_m = w.middle
+                p_r = w.right
 
             self.left_segments = shapely.geometry.LineString(l)
             self.middle_segments = shapely.geometry.LineString(m)

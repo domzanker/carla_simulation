@@ -157,7 +157,7 @@ def sample_pipeline(
     scene_dir,
     # step: mp.Value,
 ):
-    global root, roi, s_dict, write_event, sensor_lock, shapely_lock, step, strtree
+    global root, roi, s_dict, write_event, sensor_lock, shapely_lock, step, strtree, sensor_c, tree_c, io_c
 
     def _query_queue(query_frame, query_queue):
         data = query_queue.get()
@@ -180,6 +180,9 @@ def sample_pipeline(
     }
 
     # lock until all data is loaded
+    with sensor_c.get_lock():
+        sensor_c.value += 1
+
     sensor_lock.acquire()
 
     lidar_data = s_dict["lidars"]["lidar_top"]["queue"].get()
@@ -243,6 +246,8 @@ def sample_pipeline(
     with step.get_lock():
         step.value += 1
     sensor_lock.release()
+    with sensor_c.get_lock():
+        sensor_c.value -= 1
 
     write_event.set()
 
@@ -259,9 +264,13 @@ def sample_pipeline(
     query_box = shapely.affinity.affine_transform(query_box, coefficient_list)
 
     # get all polys in this box
+    with tree_c.get_lock():
+        tree_c.value += 1
     shapely_lock.acquire()
     filtered_polygons = strtree.query(query_box)  # TODO import
     shapely_lock.release()
+    with tree_c.get_lock():
+        tree_c.value -= 1
     filtered_polygons = [p.buffer(0.05) for p in filtered_polygons]
     union = shapely.ops.unary_union(filtered_polygons)
     union = union.buffer(-0.05)
@@ -316,7 +325,15 @@ def sample_pipeline(
     data_dict["road_boundaries"]["boundaries"] = road_boundaries
 
     # out_queue.put(data_dict)
+    with io_c.get_lock():
+        io_c.value += 1
     to_disk(data_dict=data_dict)
+    with io_c.get_lock():
+        io_c.value -= 1
+
+    print(f"Sensor wait: {sensor_c.value}")
+    print(f"Tree wait: {tree_c.value}")
+    print(f"IO wait: {io_c.value}")
     return spec
 
 
@@ -454,6 +471,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # debugging
+    sensor_c = mp.Value("i", 0)
+    tree_c = mp.Value("i", 0)
+    io_c = mp.Value("i", 0)
     # logger = mp.log_to_stderr()
     # logger.setLevel(logging.DEBUG)
 
@@ -539,34 +560,38 @@ if __name__ == "__main__":
     lidar_q = mp.Queue(25)
     # print(lidar_q)
     # print("start lidar")
-    lidar_t = th.Thread(
-        target=translate_lidar,
-        args=(
-            sensor_dict["lidars"]["lidar_top"]["queue"],
-            lidar_q,
-            threads_terminate,
-        ),
-    )
-    lidar_t.start()
-    threads.append(lidar_t)
-    s_dict["lidars"]["lidar_top"]["queue"] = lidar_q
-    imu_q = mp.Queue(50)
-    imu_t = th.Thread(
-        target=translate_imu,
-        args=(sensor_dict["imu"]["queue"], imu_q, threads_terminate),
-    )
-    imu_t.start()
-    s_dict["imu"]["queue"] = imu_q
-    threads = [lidar_t, imu_t]
-    for name, cam in sensor_dict["cameras"].items():
-        cam_q = mp.Queue(50)
-        cam_t = th.Thread(
-            target=translate_camera,
-            args=(cam["queue"], cam_q, threads_terminate),
+    for i in range(5):
+        lidar_t = th.Thread(
+            target=translate_lidar,
+            args=(
+                sensor_dict["lidars"]["lidar_top"]["queue"],
+                lidar_q,
+                threads_terminate,
+            ),
         )
-        cam_t.start()
-        threads.append(cam_t)
-        s_dict["cameras"][name]["queue"] = cam_q
+        lidar_t.start()
+        threads.append(lidar_t)
+    s_dict["lidars"]["lidar_top"]["queue"] = lidar_q
+
+    for i in range(5):
+        imu_q = mp.Queue(50)
+        imu_t = th.Thread(
+            target=translate_imu,
+            args=(sensor_dict["imu"]["queue"], imu_q, threads_terminate),
+        )
+        imu_t.start()
+    s_dict["imu"]["queue"] = imu_q
+    for i in range(5):
+        threads = [lidar_t, imu_t]
+        for name, cam in sensor_dict["cameras"].items():
+            cam_q = mp.Queue(50)
+            cam_t = th.Thread(
+                target=translate_camera,
+                args=(cam["queue"], cam_q, threads_terminate),
+            )
+            cam_t.start()
+            threads.append(cam_t)
+            s_dict["cameras"][name]["queue"] = cam_q
 
     spawn_points = world.get_map().get_spawn_points()
     # define which spawn points to use
