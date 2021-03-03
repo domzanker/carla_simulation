@@ -57,7 +57,10 @@ def world_clock(
     clock_terminate: mp.Event,
     global_tick: mp.Value,
 ):
-    # global lock, write_event, end
+    """
+    the world_clock process sets the simulation to synchronous mode
+    and then ticks the simulation until the termination is triggered.
+    """
 
     lock.acquire()
     client = carla.Client(server_addr, server_port)
@@ -72,8 +75,6 @@ def world_clock(
 
     lock.release()
 
-    # [world.tick() for _ in trange(50, leave=False)]
-    # [world.tick() for _ in range(50)]
     while not clock_terminate.is_set():
         # tick world
         # don't tick when there has been a write
@@ -82,6 +83,7 @@ def world_clock(
         write_event.wait()
 
         write_event.clear()
+        # tick a maximum of ten times bevor requiring the next write event
         for _ in range(10):
             lock.acquire()
             with global_tick.get_lock():
@@ -90,6 +92,12 @@ def world_clock(
 
 
 def translate_imu(in_queue, out_queues, terminate: mp.Event):
+    """
+    the translation layers serve two purposes
+    1. translate the data into a more suitable format
+    2. carla requires a Threading.Queue while MultiProcessing uses its own Queue.
+    These two are not compatible and therefore we need a layer that interfaces between both Queues
+    """
     while not terminate.is_set():
         try:
             data = in_queue.get(False)
@@ -116,6 +124,12 @@ def translate_imu(in_queue, out_queues, terminate: mp.Event):
 
 
 def translate_lidar(in_queue, out_queues: mp.Queue, terminate: mp.Event):
+    """
+    the translation layers serve two purposes
+    1. translate the data into a more suitable format
+    2. carla requires a Threading.Queue while MultiProcessing uses its own Queue.
+    These two are not compatible and therefore we need a layer that interfaces between both Queues
+    """
     while not terminate.is_set():
         try:
             data = in_queue.get(False)
@@ -133,6 +147,12 @@ def translate_lidar(in_queue, out_queues: mp.Queue, terminate: mp.Event):
 
 
 def translate_camera(in_queue, out_queues, terminate: mp.Event):
+    """
+    the translation layers serve two purposes
+    1. translate the data into a more suitable format
+    2. carla requires a Threading.Queue while MultiProcessing uses its own Queue.
+    These two are not compatible and therefore we need a layer that interfaces between both Queues
+    """
     while not terminate.is_set():
         try:
             data = in_queue.get(False)
@@ -147,29 +167,29 @@ def translate_camera(in_queue, out_queues, terminate: mp.Event):
     out_queues.close()
 
 
-def sample_pipeline(
-    # sensor_dict,
-    # out_queue: mp.Queue,
-    # write_trigger: mp.Event,
-    # sensor_lock: mp.Lock,
-    # shapely_lock: mp.Lock,
-    # map_bridge: MapBridge,
-    scene_dir,
-    # step: mp.Value,
-):
+def sample_pipeline(scene_dir):
+    """
+    sample pipeline loads all sensor data from its queues as well as the road polygons
+    """
     global root, roi, s_dict, write_event, sensor_lock, shapely_lock, step, strtree, sensor_c, tree_c, io_c
 
     def _query_queue(query_frame, query_queue):
+        # try to acquire sensor data for a given simulation frame
         data = query_queue.get()
         frame_ = data["frame"]
+        # as long as the current frame is smaller than the query frame, keep loading
+        # if current frame is larger than query frame,
+        # return false as the required frame seems to be missing from the queue
         while frame_ < query_frame:
             data = query_queue.get()  # timeout=20.0)
             frame_ = data["frame"]
         if frame_ == query_frame:
             return data
         else:
+
             return False
 
+    # initialize a empty dict for the sample data
     data_dict = {
         "lidars": {},
         "cameras": {},
@@ -179,12 +199,14 @@ def sample_pipeline(
         "root": None,
     }
 
-    # lock until all data is loaded
     with sensor_c.get_lock():
         sensor_c.value += 1
 
+    # lock until all data is loaded
     sensor_lock.acquire()
 
+    # lidar data serves as reference for the other sensors
+    # therefore the sample frequency is given by the frequency of the lidar measurements
     lidar_data = s_dict["lidars"]["lidar_top"]["queue"].get()
 
     sample_dir = scene_dir / ("sample_%s" % step.value)
@@ -223,13 +245,15 @@ def sample_pipeline(
 
     data_dict["ego_pose"] = imu["data"]
 
+    # set current spectator 2m above current imu pose
     spec = imu["data"]
     spec["location"][2] += 2
 
+    # try to find corresponding cam data from all cameras for the current lidar frame
     for name, cam_dict in s_dict["cameras"].items():
         data_dict["cameras"][name] = {}
         cam_data = _query_queue(query_frame=frame_id, query_queue=cam_dict["queue"])
-        # cam_dict["queue"].task_done()
+        # if query return false no sample for the frame could be found
         if cam_data is False:
             logging.warning(name + " empty")
             valid_data = False
@@ -249,12 +273,13 @@ def sample_pipeline(
     with sensor_c.get_lock():
         sensor_c.value -= 1
 
+    # signal a successful write event
     write_event.set()
 
+    # skip if no valid data could be loaded
     if not valid_data:
         return
 
-    # sample_dir.mkdir(parents=True, exist_ok=True)
     # extract map patch
     m_ = np.array(ego_pose.get_matrix())
     coefficient_list = np.ravel(m_[:3, :3]).tolist()
@@ -337,6 +362,7 @@ def sample_pipeline(
     return spec
 
 
+# write data_dict to disk
 def to_disk(data_dict):  # queue: mp.JoinableQueue, deactive: mp.Event):
 
     """
@@ -362,6 +388,7 @@ def to_disk(data_dict):  # queue: mp.JoinableQueue, deactive: mp.Event):
     sample_dict["sensors"] = {}
 
     lidars = data_dict["lidars"]
+    # save pcd for every lidar
     for name, lidar in lidars.items():
         export_dict = {}
         pcd_parser.addCalibration(
@@ -377,6 +404,7 @@ def to_disk(data_dict):  # queue: mp.JoinableQueue, deactive: mp.Event):
         sample_dict["sensors"][name] = export_dict
 
     cameras = data_dict["cameras"]
+    # save images for every camera
     for name, cam in cameras.items():
         export_dict = {}
         export_file = sample_dir / f"{name}.png"
@@ -390,10 +418,12 @@ def to_disk(data_dict):  # queue: mp.JoinableQueue, deactive: mp.Event):
     # road_boundaries_img = data_dict["road_boundaries"]["image"]
     # cv2.imwrite(str(sample_dir / "road_boundary.png"), road_boundaries_img)
 
+    # safe the road polygons
     boundary_file = sample_dir / "road_polygon.pkl"
     with boundary_file.open("wb+") as f:
         pickle.dump(road_boundaries, f)
 
+    # sample files includes details of the current sample in human readable form
     sample_file = sample_dir / "sample.yaml"
     with sample_file.open("w+") as f:
         yaml.safe_dump(sample_dict, f)
@@ -402,10 +432,15 @@ def to_disk(data_dict):  # queue: mp.JoinableQueue, deactive: mp.Event):
 
 
 def main(args):
+    """
+    spawn several worker processes that receive data from the simulation and write to disk
+    """
     global scene_dir, spectator
 
     number_of_samples = args.scene_length * sample_rate
     max_workers = min(args.processes, number_of_samples)
+
+    # spawn progress bar
     with tqdm(total=number_of_samples, leave=False, smoothing=0, unit="sample") as pbar:
         """
         for i in range(number_of_samples):
@@ -425,6 +460,7 @@ def main(args):
 
         else:
             with concurrent.ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # start ProcessPool for the sample pipeline
                 futures = {
                     executor.submit(sample_pipeline, scene_dir=scene_dir): _
                     for _ in range(number_of_samples)
@@ -437,8 +473,10 @@ def main(args):
                             location=carla.Location(*result["location"]),
                             rotation=carla.Rotation(**result["rotation"]),
                         )
+                        # set camera to new spectator pose
                         spectator.set_transform(spec)
 
+                    # print exceptions in process to stdout
                     if future.exception() is not None:
                         print(future.exception())
                     pbar.update(1)

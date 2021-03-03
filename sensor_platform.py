@@ -29,21 +29,33 @@ from pyquaternion import Quaternion
 
 class SensorPlatform:
     def __init__(self, world, spawn_point, sensor_tick=0.5):
+        """
+        SensorPlatform defines a vehicle with associated Sensors
+
+        Arguments:
+        ----------
+        world: carla.World
+            carla world instance
+        spawn_point: carla.Transform
+            Pose of spawn point for vehicle
+        sensor_tick: float
+            tick frequency of sensors
+        """
+
         self.world = world
         self.sensor_tick = sensor_tick
 
-        self.vehicle = self.world.get_blueprint_library().find(
-            # "vehicle.mercedes-benz.coupe"
-            "vehicle.bmw.isetta"
-        )
+        # use a small vehicle
+        self.vehicle = self.world.get_blueprint_library().find("vehicle.bmw.isetta")
         self.vehicle.set_attribute("role_name", "hero")
 
+        # spawn vehicle in world
         self.ego_vehicle = world.spawn_actor(self.vehicle, spawn_point)
-        # self.ego_vehicle.set_autopilot(True)
 
         self.cameras = {}
         self.lidars = {}
 
+        # define a imu in order to track vehicle pose over time
         imu_bp = self.world.get_blueprint_library().find("sensor.other.imu")
         imu_bp.set_attribute("sensor_tick", "0.0")  # f"{self.sensor_tick}")
         self.imu = self.world.spawn_actor(
@@ -98,6 +110,25 @@ class SensorPlatform:
         blueprint="sensor.camera.rgb",
         **kwargs,
     ):
+        """
+        add a camera for top view.
+        The height of the camera is defined by the target resolution.
+
+        Arguments:
+        ----------
+        name: str
+            name for sensor
+        veh_T_sensor: carla.Transform
+            position relative to vehicle
+        resolution: float
+            target resolution for topview
+        roi: tuple
+            box for ROI
+        blueprint: str
+            sensor blueprint
+        kwargs:
+            additional arguments are passed to blueprint settings
+        """
         blueprint = self.world.get_blueprint_library().find(blueprint)
         # Set the time in seconds between sensor captures
         # blueprint.set_attribute("sensor_tick", str(self.sensor_tick))
@@ -105,9 +136,9 @@ class SensorPlatform:
 
         image_size_x = int(roi[1] // resolution)
         image_size_y = int(roi[0] // resolution)
-
         blueprint.set_attribute("image_size_x", str(image_size_x))
         blueprint.set_attribute("image_size_y", str(image_size_y))
+
         for key, val in kwargs.items():
             blueprint.set_attribute(key, str(val))
 
@@ -124,7 +155,6 @@ class SensorPlatform:
         sensor.set_location(veh_T_sensor.location)
         q_ = Queue(maxsize=50)
         self.cameras[name] = (sensor, q_)
-        # sensor.listen(lambda data: self.reference_callback(data, q_))
         sensor.listen(lambda data: q_.put(data))
 
         bev = Camera(
@@ -144,6 +174,20 @@ class SensorPlatform:
         blueprint="sensor.camera.rgb",
         **kwargs,
     ):
+        """
+        add a camera to the vehicle.
+
+        Arguments:
+        ----------
+        name: str
+            name for sensor
+        veh_T_sensor: carla.Transform
+            position relative to vehicle
+        blueprint: str
+            sensor blueprint
+        kwargs:
+            additional arguments are passed to blueprint settings
+        """
         blueprint = self.world.get_blueprint_library().find(blueprint)
         blueprint.set_attribute(
             "sensor_tick", f"{self.sensor_tick}"
@@ -185,6 +229,20 @@ class SensorPlatform:
         blueprint="sensor.lidar.ray_cast",
         **kwargs,
     ):
+        """
+        add a lidar to the vehicle.
+
+        Arguments:
+        ----------
+        name: str
+            name for sensor
+        veh_T_sensor: carla.Transform
+            position relative to vehicle
+        blueprint: str
+            sensor blueprint
+        kwargs:
+            additional arguments are passed to blueprint settings
+        """
         blueprint = self.world.get_blueprint_library().find(blueprint)
         blueprint.set_attribute(
             "sensor_tick", f"{self.sensor_tick}"
@@ -235,40 +293,6 @@ class SensorPlatform:
 
 
 def build_extrinsic(trafo):
-    # carla applies rotation first, then translates.
-    # for a intuitive declaration we have to convert this
-    """
-    yaw = trafo.rotation.yaw
-    pitch = trafo.rotation.pitch
-    roll = trafo.rotation.roll
-    # apply rotation (pitch->yaw->roll)
-    # build from euler
-    # carla documentation states rotation by YZX
-    # https://carla.readthedocs.io/en/latest/python_api/#carla.Rotation
-    rotation = Rotation.from_euler("xyz", (roll, -pitch, -yaw), degrees=True)
-    origin = rotation.apply(
-        np.array([trafo.location.x, -trafo.location.y, trafo.location.z]), inverse=False
-    )
-    trafo.location = carla.Location(origin[0], origin[1], origin[2])
-    """
-
-    # New we must change from UE4's coordinate system to an "standard"
-    # camera coordinate system (the same used by OpenCV):
-
-    # ^ z                       . z
-    # |                        /
-    # |              to:      +-------> x
-    # | . x                   |
-    # |/                      |
-    # +-------> y             v y
-
-    # This can be achieved by multiplying by the following matrix:
-    # [[ 0,  1,  0 ],
-    #  [ 0,  0, -1 ],
-    #  [ 1,  0,  0 ]]
-
-    # Or, in this case, is the same as swapping:
-    # (x, y ,z) -> (y, -z, x)
     matrix = Isometry.from_carla_transform(trafo)
 
     base_change = Rotation.from_euler("XY", (90, -90), degrees=True)

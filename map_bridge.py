@@ -32,10 +32,6 @@ import logging
 from typing import Union, Tuple
 from dataset_utilities.transformation import Isometry
 
-"""
-First find out whether we can auitomatically extract map information from the carla map
-"""
-
 
 def plot_line(ax, ob, color=None):
     x, y = ob.xy
@@ -58,7 +54,15 @@ def plot_polygon(ax, polygon, fc="green", ec="black", *args, **kwargs):
 
 
 class WaypointBoundaries:
+    """
+    WaypointBoundaries Class defines the road boundaries for each waypoint in the carla road topology.
+    """
+
     def __init__(self, waypoint: carla.Waypoint):
+        """
+        Initialize a WaypointBoundary from a given carla.Waypoint.
+        WaypointBoundaries include left and right borders of the road definition as well as the middle lane.
+        """
         self.waypoint = waypoint
         self.transform = waypoint.transform  # FIXME
         self.position = self.transform.location
@@ -80,12 +84,33 @@ class WaypointBoundaries:
 
 class Lane(object):
     def __init__(self, seed_point: carla.Waypoint, discretization_step: float = 0.1):
+        """
+        Lane object describing one lane starting from seed_point with discretization_step.
+
+        Parameters:
+        -----------
+        seed_point: carla.Waypoint
+            Starting point from which the lane originates
+
+        discretization_step: float
+            default: 0.1
+            Sampling step of the lane.
+        """
         self.segments = []
         self.seed = seed_point
         self.id = seed_point.lane_id
         self._init_lane_segments(distance=discretization_step)
 
     def _init_lane_segments(self, distance: float = 0.1):
+        """
+        get all waypoints along the current lane
+
+        Parameters:
+        -----------
+        distance: float
+            default: 0.1
+            Discretization step along lane spline.
+        """
         wbs = [WaypointBoundaries(wp) for wp in self.seed.next_until_lane_end(distance)]
         if len(wbs) < 2:
 
@@ -105,9 +130,9 @@ class Lane(object):
                 m.append((w.middle))
                 r.append(w.right)
 
-                p_l = w.left
-                p_m = w.middle
-                p_r = w.right
+                # p_l = w.left
+                # p_m = w.middle
+                # p_r = w.right
 
             self.left_segments = shapely.geometry.LineString(l)
             self.middle_segments = shapely.geometry.LineString(m)
@@ -115,12 +140,25 @@ class Lane(object):
 
             poly = self.left_segments.coords[:]
             poly += self.right_segments.coords[::-1]
-            # convert poly to rh coordinates
             self.polygon = shapely.geometry.Polygon(poly)
 
 
 class MapBridge:
+    """
+    The MapBridge class provides a interface to the carla lane definition
+    """
+
     def __init__(self, world, waypoint_discretization: float = 0.05):
+        """
+        initialize a new instane of MapBridge
+
+        Parameters:
+        -----------
+        world: carla.World
+            carla world instance
+        waypoint_discretization: float
+            dicretization step size for polygon.
+        """
         self.map = world.get_map()
         self.waypoint_discretization = waypoint_discretization
 
@@ -131,6 +169,13 @@ class MapBridge:
         self.str_tree = None
 
     def load_lane_polygons(self):
+        """
+        load lane topology, discretizise along road definition
+        initialize the lane polygon and STR tree
+
+        Parameters:
+        -----------
+        """
         self.lane_topology = self.map.get_topology()
         polys = []
         for i, waypoint in enumerate(self.lane_topology, 1):
@@ -150,6 +195,16 @@ class MapBridge:
         self.str_tree = shapely.strtree.STRtree(self.lane_polyons)
 
     def get_map_patch(self, box_dims, world_T_veh):
+        """
+        get polygon within a defined box in vehicle frame
+
+        Parameters:
+        -----------
+        box_dims: tuple
+            width and height of ROI box
+        world_T_veh: np.array
+            transformation matrix. vehicle in world frame
+        """
         # get all polygons in a bounding box
         # box_dims = [x, y]
         # m_ = world_T_veh.matrix
@@ -158,9 +213,11 @@ class MapBridge:
         coefficient_list = np.ravel(m_[:3, :3]).tolist()
         coefficient_list += np.ravel(m_[:3, 3]).tolist()
 
+        # setup shapely box
         query_box = shapely.geometry.box(
             -box_dims[0] / 2, -box_dims[1] / 2, box_dims[0] / 2, box_dims[1] / 2
         )
+        # transform box to world frame
         query_box = shapely.affinity.affine_transform(query_box, coefficient_list)
 
         # get all polys in this box
@@ -168,6 +225,7 @@ class MapBridge:
         filtered_polygons = [
             p.buffer(self.waypoint_discretization) for p in filtered_polygons
         ]
+        # fill gaps in the polygon by expandinng and then collapsing the polygon by a discretization step
         union = shapely.ops.unary_union(filtered_polygons)
         union = union.buffer(-self.waypoint_discretization)
 

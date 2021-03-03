@@ -1,3 +1,9 @@
+"""
+Plot all spawn points for a given map. 
+Optionally save plots
+usage: 
+    python spawn_points.py -h
+"""
 import glob
 import os
 import sys
@@ -37,8 +43,12 @@ if speedups.available:
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--map", default="Town01")
-parser.add_argument("--save", default=None)
+parser.add_argument("--map", default="Town01", help="CARLA map")
+parser.add_argument(
+    "--save",
+    default=None,
+    help="[optional] if path is given the plot is saved under the path",
+)
 
 args = parser.parse_args()
 

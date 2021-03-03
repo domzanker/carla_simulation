@@ -44,6 +44,14 @@ class Scene:
     ]
 
     def __init__(self, root, scene: int, args):
+        """initialize a instance of a Scene
+        A scene handles the write process within a carla simulation
+
+        Args:
+            root (str): root directory for write
+            scene (int): index for scene
+            args (namespace): argparse workspace 
+        """
         self.root = root
         self.scene = scene
         self.scene_path = self.root / ("scene_%s" % scene)
@@ -57,6 +65,22 @@ class Scene:
         self.args = args
 
     def load_sample(self, sample_idx: int, town=None):
+        """
+        Load a given sample from the scene. 
+        This includes:
+        - add images to BEVCompositor
+        - update gridmap
+        - load and refine road boundary polygons
+        - initialize a SampleData for this sample 
+
+        Args:
+            sample_idx (int): index for sample aka the number of the current sample within the scene
+            town (str, optional): name of the current town. If present, used as a prefix in the file tree. Defaults to None.
+
+        Returns:
+            bool: True if samples was successfully loaded
+        """          
+
         sample_path = self.scene_path / ("sample_%s" % sample_idx)
         if not sample_path.is_dir():
             print("could not find sample folder %s" % sample_path)
@@ -130,6 +154,7 @@ class Scene:
         lidar.data[1, :] = -lidar.data[1, :]
         lidar.transformLidarToVehicle()
 
+        # update grid map
         self.grid_map.update_u(
             point_cloud=lidar.data, veh_T_sensor=veh_T_lidar, world_T_veh=ego_pose
         )
@@ -171,6 +196,7 @@ class Scene:
         self.grid_map.boundaries = self.road_boundary[0]
         self.grid_map.boundaries_interior = self.road_boundary[1]
 
+        # initialize self.sample_file
         self.sample_file = SampleData(
             scene=self.scene,
             sample=sample_idx,
@@ -182,6 +208,12 @@ class Scene:
         return True
 
     def render_sample(self, debug=False):
+        """
+        Create valid training data for the current sample.
+
+        Args:
+            debug (bool, optional): Also render debugging output. Defaults to False.
+        """        
         img = self.compositor.composeImage(debug=False)
         self.label_img = self.compositor.label
 
@@ -400,7 +432,12 @@ if __name__ == "__main__":
     parser.add_argument("--resolution", type=float, default=0.04)
     parser.add_argument("--inverse_distance_thld", type=float, default=0.5)
     parser.add_argument("--sensor_config", type=str, default="sensor_config.yaml")
-    parser.add_argument("--debug_ratio", type=int, default=1)
+    parser.add_argument(
+        "--debug_ratio",
+        type=int,
+        default=1,
+        help="number of workers that will produce debug output",
+    )
     args = parser.parse_args()
 
     try:
