@@ -57,6 +57,8 @@ class Scene:
         self.args = args
 
     def load_sample(self, sample_idx: int, town=None):
+        """load a given sample from the scene tree"""
+
         sample_path = self.scene_path / ("sample_%s" % sample_idx)
         if not sample_path.is_dir():
             print("could not find sample folder %s" % sample_path)
@@ -400,7 +402,12 @@ if __name__ == "__main__":
     parser.add_argument("--resolution", type=float, default=0.04)
     parser.add_argument("--inverse_distance_thld", type=float, default=0.5)
     parser.add_argument("--sensor_config", type=str, default="sensor_config.yaml")
-    parser.add_argument("--debug_ratio", type=int, default=1)
+    parser.add_argument(
+        "--debug_ratio",
+        type=int,
+        default=1,
+        help="number of workers that will produce debug output",
+    )
     args = parser.parse_args()
 
     try:

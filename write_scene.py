@@ -266,15 +266,39 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--map", type=str, default="Town01")
-    parser.add_argument("--server_addr", type=str, default="localhost")
-    parser.add_argument("--server_port", type=int, default=2000)
-    parser.add_argument("--base_path", type=str, default="/home/dominic/data/carla")
+    parser.add_argument("--map", type=str, default="Town01", help="town/map")
+    parser.add_argument(
+        "--server_addr",
+        type=str,
+        default="localhost",
+        help="network adress for carla server",
+    )
+    parser.add_argument(
+        "--server_port", type=int, default=2000, help="port for carla server"
+    )
+    parser.add_argument(
+        "--base_path",
+        type=str,
+        default="/home/dominic/data/carla",
+        help="path for data output",
+    )
 
-    parser.add_argument("--step_delta", type=float, default=0.05)
-    parser.add_argument("--scene_length", type=int, default=90)
+    parser.add_argument(
+        "--step_delta",
+        type=float,
+        default=0.05,
+        help="incremental step size for syncronous carla",
+    )
+    parser.add_argument(
+        "--scene_length",
+        type=int,
+        default=90,
+        help="length of recorded scene in seconds",
+    )
 
-    parser.add_argument("--spawn_point", type=int, default=0)
+    parser.add_argument(
+        "--spawn_point", type=int, default=0, help="index of the spawn point"
+    )
 
     args = parser.parse_args()
     write_scene(args)
